@@ -1,0 +1,16 @@
+[project]
+name = "turingagent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "dotenv>=0.9.9",
+    "ipython>=9.4.0",
+    "langchain>=0.3.26",
+    "langchain-openai>=0.3.28",
+    "langgraph>=0.5.3",
+]
+
+
+
