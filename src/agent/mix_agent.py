@@ -1,10 +1,12 @@
+from langgraph.prebuilt import create_react_agent
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-from langgraph.checkpoint import InMemorySaver
+from langgraph.checkpoint.memory import InMemorySaver
 import os
 load_dotenv()
 
 checkpointer = InMemorySaver()
+
 
 class LLMFactory:
     @staticmethod
@@ -16,13 +18,13 @@ class LLMFactory:
             base_url=os.getenv('DEEPSEEK_BASE_URL')
         )
 
+
 # langgraph 做法
-from langgraph.prebuilt import create_react_agent
 llm = LLMFactory.create_llm()
 
 agent = create_react_agent(
-    model = llm,
-    tools = [],
-    prompt = "你是一个友好的小帮手",
+    model=llm,
+    tools=[],
+    prompt="你是一个友好的小帮手",
     checkpointer=checkpointer
 )

@@ -8,8 +8,11 @@ dependencies = [
     "dotenv>=0.9.9",
     "ipython>=9.4.0",
     "langchain>=0.3.26",
+    "langchain-mcp-adapters>=0.1.9",
     "langchain-openai>=0.3.28",
     "langgraph>=0.5.3",
+    "pydantic>=2.11.7",
+    "pyyaml>=6.0.2",
 ]
 
 
