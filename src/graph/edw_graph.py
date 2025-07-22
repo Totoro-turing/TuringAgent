@@ -18,6 +18,11 @@ from langgraph.config import get_stream_writer
 from langchain_core.messages import AnyMessage, HumanMessage
 from typing import List, TypedDict, Annotated, Optional
 from operator import add
+
+def keep_latest(current, new):
+    """保持最新值的 reducer"""
+    return new if new is not None else current
+
 from dotenv import load_dotenv
 from langgraph.prebuilt import create_react_agent
 from src.basic.filesystem.file_operate import FileSystemTool
@@ -151,16 +156,16 @@ async def get_table_fields_info(table_name: str) -> dict:
         if cache_manager:
             # 使用缓存管理器获取表字段信息
             result = await cache_manager.get_table_fields(table_name, _fetch_table_fields_from_db)
-            
+
             # 添加缓存命中统计到日志
             stats = cache_manager.get_stats()
             logger.debug(f"表字段查询完成: {table_name} | 缓存统计 - 命中率: {stats['hit_rate']}, 总请求: {stats['total_requests']}")
         else:
             # 直接查询（无缓存）
             result = await _fetch_table_fields_from_db(table_name)
-        
+
         return result
-        
+
     except Exception as e:
         logger.error(f"查询表字段失败 {table_name}: {e}")
         return {"status": "error", "message": str(e)}
@@ -171,7 +176,7 @@ def find_similar_fields(input_field: str, available_fields: list, threshold: Opt
     if threshold is None:
         validation_config = config_manager.get_validation_config()
         threshold = validation_config.similarity_threshold
-    
+
     similar_fields = []
 
     for field in available_fields:
@@ -185,7 +190,7 @@ def find_similar_fields(input_field: str, available_fields: list, threshold: Opt
 
     # 按相似度排序
     similar_fields.sort(key=lambda x: x["similarity"], reverse=True)
-    
+
     validation_config = config_manager.get_validation_config()
     max_suggestions = validation_config.max_suggestions
     return similar_fields[:max_suggestions]
@@ -202,7 +207,7 @@ async def validate_fields_against_base_tables(fields: list, base_tables: list, s
 
     # 获取所有底表的字段信息
     all_base_fields = []
-    
+
     # 记录开始时间和缓存状态
     start_time = datetime.now()
     initial_stats = cache_manager.get_stats()
@@ -219,16 +224,16 @@ async def validate_fields_against_base_tables(fields: list, base_tables: list, s
         else:
             logger.warning(f"无法获取底表 {table_name} 的字段信息: {table_info['message']}")
             validation_result["base_tables_info"][table_name] = []
-    
+
     # 记录结束时间和缓存统计
     end_time = datetime.now()
     final_stats = cache_manager.get_stats()
-    
+
     # 计算本次验证的缓存效果
     cache_hits_delta = final_stats['cache_hits'] - initial_stats['cache_hits']
     cache_requests_delta = final_stats['total_requests'] - initial_stats['total_requests']
     duration = (end_time - start_time).total_seconds()
-    
+
     logger.info(f"底表查询完成 - 耗时: {duration:.2f}秒, 查询了{len(base_tables)}个表, 缓存命中: {cache_hits_delta}/{cache_requests_delta}")
     validation_result["cache_performance"] = {
         "duration_seconds": round(duration, 2),
@@ -287,6 +292,29 @@ def _generate_pattern_suggestions(field_name: str, available_fields: list) -> li
     return suggestions[:3]
 
 
+def _validate_english_model_name(name: str) -> tuple[bool, str]:
+    """验证英文模型名称格式"""
+    if not name or not name.strip():
+        return False, "模型名称不能为空"
+
+    name = name.strip()
+
+    # 检查是否包含中文字符
+    if any('\u4e00' <= char <= '\u9fff' for char in name):
+        return False, f"模型名称不能包含中文字符，当前值: '{name}'"
+
+    # 检查是否符合标准格式（首字母大写，单词间空格分隔）
+    words = name.split()
+    if not words:
+        return False, "模型名称不能为空"
+
+    for word in words:
+        if not word[0].isupper() or not word.isalpha():
+            return False, f"模型名称应采用标准格式（如：Finance Invoice Header），当前值: '{name}'"
+
+    return True, ""
+
+
 def convert_to_adb_path(code_path: str) -> str:
     """
     将本地代码路径转换为ADB路径格式
@@ -343,15 +371,15 @@ _global_enhancement_tools = None
 async def _get_global_code_enhancement_agent():
     """获取全局的代码增强智能体（懒加载）"""
     global _global_code_enhancement_agent, _global_enhancement_tools
-    
+
     if _global_code_enhancement_agent is None:
         logger.info("正在初始化全局代码增强智能体...")
-        
+
         try:
             # 获取MCP工具（只获取一次）
             from src.mcp.mcp_client import get_mcp_tools
             from src.agent.code_enhance_agent import CodeAnalysisTool
-            
+
             tools = []
             try:
                 async with get_mcp_tools() as mcp_tools:
@@ -360,14 +388,14 @@ async def _get_global_code_enhancement_agent():
                         logger.info(f"全局agent获取到 {len(mcp_tools)} 个MCP工具")
             except Exception as e:
                 logger.warning(f"全局agent MCP工具获取失败: {e}")
-            
+
             # 添加基础代码分析工具
             tools.append(CodeAnalysisTool())
             _global_enhancement_tools = tools
-            
+
             # 使用通用的系统提示词创建agent
             system_prompt = config_manager.get_prompt("code_enhance_system_prompt")
-            
+
             # 创建全局的ReAct智能体
             _global_code_enhancement_agent = create_react_agent(
                 model=get_shared_llm(),
@@ -375,9 +403,9 @@ async def _get_global_code_enhancement_agent():
                 prompt=system_prompt,  # 使用系统级提示词
                 checkpointer=get_shared_checkpointer()
             )
-            
+
             logger.info(f"全局代码增强智能体初始化成功，共 {len(tools)} 个工具")
-            
+
         except Exception as e:
             logger.error(f"全局代码增强智能体初始化失败: {e}")
             # 创建最简单的fallback agent
@@ -390,7 +418,7 @@ async def _get_global_code_enhancement_agent():
                 prompt="你是一个代码增强助手。",
                 checkpointer=get_shared_checkpointer()
             )
-    
+
     return _global_code_enhancement_agent, _global_enhancement_tools
 
 # langgraph 做法
@@ -400,24 +428,32 @@ async def _get_global_code_enhancement_agent():
 class EDWState(TypedDict):
     """EDW系统统一状态管理"""
     messages: Annotated[List[AnyMessage], add]
-    type: str  # 任务类型：other, model_enhance, model_add等
-    user_id: str  # 用户ID，用于会话隔离
+    type: Annotated[str, keep_latest]  # 任务类型：other, model_enhance, model_add等
+    user_id: Annotated[str, keep_latest]  # 用户ID，用于会话隔离
 
     # 模型开发相关信息
-    table_name: Optional[str]  # 表名
-    code_path: Optional[str]  # 代码路径
-    adb_code_path: Optional[str]  # ADB中的代码路径（从code_path转换而来）
-    source_code: Optional[str]  # 源代码
-    enhance_code: Optional[str]  # 增强后的代码
-    create_table_sql: Optional[str]  # 建表语句
-    alter_table_sql: Optional[str]  # 修改表语句
+    table_name: Annotated[Optional[str], keep_latest]  # 表名
+    code_path: Annotated[Optional[str], keep_latest]  # 代码路径
+    adb_code_path: Annotated[Optional[str], keep_latest]  # ADB中的代码路径（从code_path转换而来）
+    source_code: Annotated[Optional[str], keep_latest]  # 源代码
+    enhance_code: Annotated[Optional[str], keep_latest]  # 增强后的代码
+    create_table_sql: Annotated[Optional[str], keep_latest]  # 建表语句
+    alter_table_sql: Annotated[Optional[str], keep_latest]  # 修改表语句
+    model_name: Annotated[Optional[str], keep_latest]  # 模型名称（从表comment提取，必须为英文）
+    model_attribute_name: Annotated[Optional[str], keep_latest]  # 用户输入的模型属性名称（英文）
+    business_purpose: Annotated[Optional[str], keep_latest]  # 业务用途描述
 
     # 信息收集相关
-    requirement_description: Optional[str]  # 需求描述
-    logic_detail: Optional[str]  # 逻辑详情
-    fields: Optional[List[dict]]  # 新增字段列表（每个字段包含physical_name, attribute_name等）
-    collected_info: Optional[dict]  # 已收集的信息
-    missing_info: Optional[List[str]]  # 缺失的信息列表
+    requirement_description: Annotated[Optional[str], keep_latest]  # 需求描述
+    logic_detail: Annotated[Optional[str], keep_latest]  # 逻辑详情
+    fields: Annotated[Optional[List[dict]], keep_latest]  # 新增字段列表（每个字段包含physical_name, attribute_name等）
+    collected_info: Annotated[Optional[dict], keep_latest]  # 已收集的信息
+    missing_info: Optional[List[str]]  # 缺失的信息列表（临时状态，允许重置）
+
+    # Confluence文档相关
+    confluence_page_url: Annotated[Optional[str], keep_latest]  # Confluence页面链接
+    confluence_page_id: Annotated[Optional[str], keep_latest]  # Confluence页面ID
+    confluence_title: Annotated[Optional[str], keep_latest]  # Confluence页面标题
 
     # 会话状态
     session_state: Optional[str]  # 当前会话状态
@@ -431,7 +467,7 @@ def navigate_node(state: EDWState):
     writer({"node": ">>> navigate"})
 
     # 如果已经有type，直接返回
-    if 'type' in state and state['type'] != 'other':
+    if 'type' in state and state['type'] != '' and state['type'] != 'other':
         return {"type": state['type'], "user_id": state.get("user_id", "")}
 
     prompt_template = config_manager.get_prompt("navigation_prompt")
@@ -565,10 +601,7 @@ def search_table_cd(table_name: str) -> str:
     name = table_name.split(".")[1]
     files = system.search_files_by_name("nb_" + name)
     if not files:
-        return f"""{
-            "status": "error",
-            "message": "未找到表 {table_name} 的相关代码"
-        }"""
+        return f'{{"status": "error", "message": "未找到表 {table_name} 的相关代码"}}'
     file = [i for i in files if schema in str(i)][0]
     if file.name.endswith(('.sql', '.py')):
         file_path = os.path.join(os.getenv("LOCAL_REPO_PATH"), str(file))
@@ -593,12 +626,7 @@ def search_table_cd(table_name: str) -> str:
             'timestamp': datetime.now().isoformat()
         }
         return str(file_info)
-    return f"""
-            {
-        "status": "error",
-            "message": "暂不支持的代码文件格式: {file.name}, 仅支持 .sql 和 .py 文件。请检查表名或代码文件格式。"
-            }
-        """
+    return f'{{"status": "error", "message": "暂不支持的代码文件格式: {file.name}, 仅支持 .sql 和 .py 文件。请检查表名或代码文件格式。"}}'
 
 
 # 模型增强前针对数据进行校验验证
@@ -635,7 +663,22 @@ async def edw_model_enhance_data_validation_node(state: EDWState):
         try:
             # 使用PydanticOutputParser解析LLM响应
             parsed_request = parser.parse(validation_result)
-            writer({"parsed_data": parsed_request.dict()})
+            writer({"parsed_data": parsed_request.model_dump()})
+
+            # 验证英文模型名称格式
+            if parsed_request.model_attribute_name:
+                is_valid_name, name_error = _validate_english_model_name(parsed_request.model_attribute_name)
+                if not is_valid_name:
+                    error_msg = f"模型名称格式不正确：{name_error}\n\n请使用标准的英文格式，例如：\n- Finance Invoice Header\n- Customer Order Detail\n- Inventory Management System"
+                    writer({"error": error_msg})
+                    writer({"content": error_msg})
+                    return {
+                        "type": "incomplete_info",
+                        "error_message": error_msg,
+                        "table_name": parsed_request.table_name if parsed_request.table_name else "",
+                        "user_id": state.get("user_id", ""),
+                        "messages": [HumanMessage(error_msg)]
+                    }
 
             # 验证信息完整性
             is_complete, missing_fields = parsed_request.validate_completeness()
@@ -768,12 +811,12 @@ async def edw_model_enhance_data_validation_node(state: EDWState):
                         }
                     else:
                         writer({"status": "字段验证通过"})
-                        
+
                         # 添加缓存性能信息到成功验证的情况
                         if "cache_performance" in field_validation:
                             cache_perf = field_validation["cache_performance"]
                             writer({"cache_performance": f"查询性能: 耗时{cache_perf['duration_seconds']}秒, 缓存命中率: {cache_perf['overall_hit_rate']}"})
-                        
+
                         if field_validation["suggestions"]:
                             suggestions_msg = "字段建议：\\n"
                             for field_name, suggestions in field_validation["suggestions"].items():
@@ -790,17 +833,19 @@ async def edw_model_enhance_data_validation_node(state: EDWState):
                     "table_name": table_name,
                     "logic_detail": logic_detail,
                     "enhancement_type": parsed_request.enhancement_type,
+                    "model_attribute_name": parsed_request.model_attribute_name,  # 用户输入的英文模型名称
+                    "business_purpose": parsed_request.business_purpose,  # 业务用途描述
                     "field_info": parsed_request.field_info,
                     "business_requirement": parsed_request.business_requirement,
                     # 新增字段列表（存储为字典列表）
-                    "fields": [field.dict() for field in parsed_request.fields] if parsed_request.fields else [],
+                    "fields": [field.model_dump() for field in parsed_request.fields] if parsed_request.fields else [],
                     # 存储表代码信息
                     "source_code": code_info.get("code", ""),
                     "code_path": code_path,
                     "adb_code_path": adb_path,  # 新增ADB路径
                     "collected_info": {
                         "validation_result": validation_result,
-                        "parsed_requirements": parsed_request.dict(),
+                        "parsed_requirements": parsed_request.model_dump(),
                         "table_code_info": code_info,
                         "adb_path": adb_path,
                         "timestamp": datetime.now().isoformat()
@@ -842,10 +887,10 @@ async def edw_model_enhance_data_validation_node(state: EDWState):
 def edw_model_enhance_data_validation_node_sync(state: EDWState):
     """模型增强数据验证节点的同步包装器"""
     print(">>> edw_model_enhance_data_validation Node (sync wrapper)")
-    
+
     # 在同步上下文中运行异步函数
     import asyncio
-    
+
     try:
         # 获取或创建事件循环
         try:
@@ -854,10 +899,10 @@ def edw_model_enhance_data_validation_node_sync(state: EDWState):
                 # 如果循环已在运行，创建一个新任务
                 import concurrent.futures
                 import threading
-                
+
                 result = None
                 exception = None
-                
+
                 def run_async():
                     nonlocal result, exception
                     try:
@@ -867,11 +912,11 @@ def edw_model_enhance_data_validation_node_sync(state: EDWState):
                         new_loop.close()
                     except Exception as e:
                         exception = e
-                
+
                 thread = threading.Thread(target=run_async)
                 thread.start()
                 thread.join()
-                
+
                 if exception:
                     raise exception
                 return result
@@ -886,7 +931,7 @@ def edw_model_enhance_data_validation_node_sync(state: EDWState):
                 return loop.run_until_complete(edw_model_enhance_data_validation_node(state))
             finally:
                 loop.close()
-                
+
     except Exception as e:
         logger.error(f"异步节点执行失败: {e}")
         writer = get_stream_writer()
@@ -947,16 +992,16 @@ async def _run_code_enhancement(table_name: str, source_code: str, adb_code_path
 ```
 
 请按以下步骤执行：
-1. 使用sql_query工具查询目标表 {table_name} 的结构信息
-2. 使用code_analysis工具分析源代码，提取底表名称
-3. 对重要的底表使用sql_query工具查询结构，用于推断新字段的数据类型
-4. 生成增强后的{code_type_desc}代码、新建表DDL和ALTER语句
+1. 使用execute_sql工具查询目标表 {table_name} 的结构信息，并提取表结构中表的comment信息
+2. 对源代码的底表使用execute_sql工具查询表结构，用于推断新字段的数据类型
+3. 生成增强后的{code_type_desc}代码、新建表DDL和ALTER语句
 
 最终请严格按照JSON格式返回：
 {{
   "enhanced_code": "增强后的{code_type_desc}代码",
   "new_table_ddl": "包含新字段的完整CREATE TABLE语句",
-  "alter_statements": "ALTER TABLE语句"
+  "alter_statements": "ALTER TABLE语句",
+  "table_comment":"表comment"
 }}"""
 
         writer({"progress": "正在执行代码增强，智能体将自动分析表结构和依赖关系..."})
@@ -990,6 +1035,7 @@ async def _run_code_enhancement(table_name: str, source_code: str, adb_code_path
                 "enhanced_code": enhancement_result.get("enhanced_code"),
                 "new_table_ddl": enhancement_result.get("new_table_ddl"),
                 "alter_statements": enhancement_result.get("alter_statements"),
+                "table_comment": enhancement_result.get("table_comment"),  # 表comment（模型名称）
                 "field_mappings": fields
             }
         else:
@@ -1022,7 +1068,8 @@ def _parse_agent_response(content: str) -> dict:
     default_result = {
         "enhanced_code": "",
         "new_table_ddl": "",
-        "alter_statements": ""
+        "alter_statements": "",
+        "table_comment": ""  # 表comment信息（模型名称）
     }
 
     try:
@@ -1117,11 +1164,24 @@ def edw_model_enhance_node(state: EDWState):
             writer({"status": "模型增强完成"})
             writer({"result": "代码增强成功"})
 
+            # 验证从表comment提取的模型名称格式
+            table_comment_model_name = enhancement_result.get("table_comment", "")
+            validated_model_name = table_comment_model_name
+
+            if table_comment_model_name:
+                is_valid_comment_name, comment_name_error = _validate_english_model_name(table_comment_model_name)
+                if not is_valid_comment_name:
+                    writer({"warning": f"表comment中的模型名称格式不符合标准: {comment_name_error}"})
+                    writer({"suggestion": "建议更新表comment使用标准英文格式，如：Finance Invoice Header"})
+                    # 不阻止流程继续，但记录警告
+                    validated_model_name = ""
+
             return {
                 "user_id": user_id,
                 "enhance_code": enhancement_result.get("enhanced_code"),
                 "create_table_sql": enhancement_result.get("new_table_ddl"),
                 "alter_table_sql": enhancement_result.get("alter_statements"),
+                "model_name": validated_model_name,  # 验证后的模型名称（从表comment提取）
                 "field_mappings": enhancement_result.get("field_mappings"),
                 "enhancement_summary": {
                     "table_name": table_name,
@@ -1160,34 +1220,796 @@ def edw_model_addition_node(state: EDWState):
     return {}
 
 
+# EDW邮件HTML模板常量
+EDW_EMAIL_HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EDW Model Review Request</title>
+    <style>
+        body {{
+            font-family: 'Segoe UI', 'Microsoft YaHei', Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+        }}
+        .container {{
+            max-width: 600px;
+            margin: 20px auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }}
+        .header {{
+            background: linear-gradient(135deg, #0078d4, #106ebe);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }}
+        .content {{
+            padding: 30px;
+        }}
+        .greeting {{
+            font-size: 16px;
+            color: #323130;
+            margin-bottom: 20px;
+            font-weight: 500;
+        }}
+        .model-name {{
+            font-size: 20px;
+            font-weight: 700;
+            color: #0078d4;
+            margin: 20px 0;
+            padding: 15px;
+            background: #f0f6ff;
+            border-left: 4px solid #0078d4;
+            border-radius: 4px;
+        }}
+        .fields-section {{
+            margin: 25px 0;
+        }}
+        .fields-title {{
+            font-size: 16px;
+            font-weight: 600;
+            color: #323130;
+            margin-bottom: 15px;
+        }}
+        .fields-table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }}
+        .thank-you {{
+            font-size: 16px;
+            color: #323130;
+            margin: 25px 0;
+            font-weight: 500;
+        }}
+        .footer {{
+            background: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            color: #605e5c;
+            font-size: 14px;
+            border-top: 1px solid #e1dfdd;
+        }}
+        a:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,120,212,0.4) !important;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 style="margin: 0; font-size: 24px;">🏢 EDW Model Review Request</h1>
+            <p style="margin: 5px 0 0 0; opacity: 0.9;">Enterprise Data Warehouse</p>
+        </div>
+        
+        <div class="content">
+            <div class="greeting">{greeting}</div>
+            
+            <div class="model-name">
+                {model_full_name}
+            </div>
+            
+            <div class="fields-section">
+                <div class="fields-title">新增字段如下：</div>
+                <table class="fields-table">
+                    {fields_html}
+                </table>
+            </div>
+            
+            <div class="thank-you">请帮忙review 谢谢</div>
+            
+            {review_link_html}
+        </div>
+        
+        <div class="footer">
+            <p style="margin: 0;">📧 This email was automatically generated by EDW Intelligent Assistant</p>
+            <p style="margin: 5px 0 0 0; color: #a19f9d;">
+                Generated at {current_time}
+            </p>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+# 问候语映射常量
+EDW_EMAIL_GREETING_MAP = {
+    "dwd_fi": "Hello Finance Reviewers,",
+    "cam_fi": "Hello Finance Reviewers,",
+    "dwd_hr": "Hello HR Reviewers,",
+    "cam_hr": "Hello HR Reviewers,",
+    "default": "Hello SAB Reviewers,"
+}
+
+
+def _build_html_email_template(table_name: str, model_name: str, schema: str,
+                              fields: list, confluence_page_url: str, confluence_title: str) -> str:
+    """构建友好的HTML邮件模板"""
+
+    # 确定问候语
+    greeting = EDW_EMAIL_GREETING_MAP.get(schema.lower(), EDW_EMAIL_GREETING_MAP["default"])
+
+    # 构建模型全名
+    model_full_name = f"{schema}.{model_name or table_name.split('.')[-1] if '.' in table_name else table_name}"
+
+    # 构建字段列表HTML
+    fields_html = ""
+    if fields:
+        for field in fields:
+            physical_name = field.get('physical_name', '未知字段')
+            attribute_name = field.get('attribute_name', field.get('physical_name', ''))
+            fields_html += f"""
+                <tr>
+                    <td style="padding: 8px 12px; border-left: 3px solid #0078d4; background-color: #f8f9fa;">
+                        <span style="font-weight: 600; color: #323130;">{physical_name}</span>
+                        <span style="color: #605e5c; margin-left: 8px;">({attribute_name})</span>
+                    </td>
+                </tr>"""
+    else:
+        fields_html = '<tr><td style="padding: 8px 12px; color: #605e5c;">暂无新增字段信息</td></tr>'
+
+    # 构建Review链接HTML
+    review_link_html = ""
+    if confluence_page_url:
+        review_link_html = f"""
+            <div style="margin: 25px 0;">
+                <a href="{confluence_page_url}" 
+                   style="background: linear-gradient(135deg, #0078d4, #106ebe); 
+                          color: white; 
+                          padding: 12px 24px; 
+                          text-decoration: none; 
+                          border-radius: 6px; 
+                          display: inline-block;
+                          font-weight: 600;
+                          box-shadow: 0 2px 8px rgba(0,120,212,0.3);
+                          transition: all 0.3s ease;">
+                    📋 Review Log
+                </a>
+            </div>
+            <p style="color: #605e5c; font-size: 14px; margin: 10px 0;">
+                Review log: <a href="{confluence_page_url}" style="color: #0078d4;">{confluence_page_url}</a>
+            </p>"""
+    else:
+        review_link_html = '<p style="color: #d13438;">⚠️ Review链接暂不可用，请联系技术支持。</p>'
+
+    # 使用模板常量格式化HTML
+    html_content = EDW_EMAIL_HTML_TEMPLATE.format(
+        greeting=greeting,
+        model_full_name=model_full_name,
+        fields_html=fields_html,
+        review_link_html=review_link_html,
+        current_time=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    )
+
+    return html_content
+
+
+def _send_email_via_metis(html_content: str, model_name: str, table_name: str) -> dict:
+    """使用metis系统发送邮件"""
+    try:
+        from src.basic.metis.email import Email, EmailParam
+        from src.basic.config import settings
+
+        # 检查邮件token
+        if not settings.EMAIL_TOKEN or settings.EMAIL_TOKEN == "":
+            return {
+                "success": False,
+                "error": "EMAIL_TOKEN未配置，请检查环境变量"
+            }
+
+        # 构建邮件参数
+        email_params = {
+            "MOType": "EDW",
+            "MOName": "ModelReview",
+            "AlertName": f"Model Review Request - {model_name or table_name}",
+            "AlertDescription": html_content,
+            "Priority": "P3",
+            "Assignee": "reviewers"
+        }
+
+        # 创建邮件参数对象
+        email_param_obj = EmailParam(email_params)
+
+        # 创建邮件发送对象
+        email_sender = Email(email_param_obj.get_param(), settings.EMAIL_TOKEN)
+
+        # 发送邮件
+        result = email_sender.send()
+
+        return {
+            "success": True,
+            "result": result,
+            "email_params": email_params
+        }
+
+    except ImportError as e:
+        return {
+            "success": False,
+            "error": f"导入邮件模块失败: {str(e)}"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"邮件发送失败: {str(e)}"
+        }
+
+
 # 负责发送邮件
 def edw_email_node(state: EDWState):
-    """邮件通知节点"""
+    """优化的友好邮件发送节点"""
     print(">>> edw_email Node")
     writer = get_stream_writer()
     writer({"node": ">>> edw_email"})
-    writer({"status": "发送邮件通知"})
-    return {}
+
+    try:
+        # 从state中获取相关信息
+        table_name = state.get("table_name", "未知表")
+        model_name = state.get("model_name", "") or state.get("model_attribute_name", "")
+        confluence_page_url = state.get("confluence_page_url", "")
+        confluence_title = state.get("confluence_title", "")
+        fields = state.get("fields", [])
+        user_id = state.get("user_id", "")
+
+        # 解析schema信息
+        schema = "default"
+        if '.' in table_name:
+            schema = table_name.split('.')[0]
+
+        writer({"status": f"准备发送邮件通知: {table_name}"})
+        writer({"email_info": {
+            "table_name": table_name,
+            "model_name": model_name,
+            "schema": schema,
+            "fields_count": len(fields),
+            "has_confluence_link": bool(confluence_page_url)
+        }})
+
+        # 构建HTML邮件内容
+        writer({"progress": "正在构建HTML邮件模板..."})
+        html_content = _build_html_email_template(
+            table_name=table_name,
+            model_name=model_name,
+            schema=schema,
+            fields=fields,
+            confluence_page_url=confluence_page_url,
+            confluence_title=confluence_title
+        )
+
+        writer({"progress": "正在发送邮件..."})
+
+        # 发送邮件
+        send_result = _send_email_via_metis(html_content, model_name, table_name)
+
+        if send_result.get("success"):
+            writer({"status": "邮件发送成功"})
+            writer({"result": "HTML格式的review邮件已发送给相关审核人员"})
+            writer({"email_sent": True})
+
+            # 输出发送详情
+            writer({"email_details": {
+                "format": "HTML",
+                "confluence_link_included": bool(confluence_page_url),
+                "fields_included": len(fields),
+                "send_status": "success"
+            }})
+
+            return {
+                "user_id": user_id,
+                "email_sent": True,
+                "email_format": "HTML",
+                "email_subject": f"Model Review Request - {model_name or table_name}",
+                "confluence_link_included": bool(confluence_page_url),
+                "confluence_page_url": confluence_page_url,
+                "send_result": send_result.get("result", ""),
+                "email_params": send_result.get("email_params", {}),
+                "session_state": "email_completed"
+            }
+        else:
+            error_msg = send_result.get("error", "未知错误")
+            writer({"error": f"邮件发送失败: {error_msg}"})
+            writer({"email_sent": False})
+
+            # 仍然输出HTML预览供调试
+            writer({"html_preview": html_content})
+
+            return {
+                "error_message": f"邮件发送失败: {error_msg}",
+                "user_id": user_id,
+                "email_sent": False,
+                "html_content": html_content,  # 保留HTML内容供调试
+                "confluence_page_url": confluence_page_url
+            }
+
+    except Exception as e:
+        error_msg = f"邮件节点处理失败: {str(e)}"
+        logger.error(error_msg)
+        writer({"error": error_msg})
+        return {
+            "error_message": error_msg,
+            "user_id": state.get("user_id", ""),
+            "email_sent": False
+        }
 
 # 负责更新confluence page
 
 
+async def _create_confluence_documentation(table_name: str, model_name: str,
+                                        enhanced_code: str, fields: list,
+                                        alter_table_sql: str, writer, user_id: str) -> dict:
+    """异步创建Confluence文档的核心函数"""
+    try:
+        from src.basic.confluence.confluence_tools import ConfluenceWorkflowTools
+
+        writer({"progress": "正在初始化Confluence工具..."})
+
+        # 解析表名获取schema信息
+        if '.' in table_name:
+            schema, table = table_name.split('.', 1)
+        else:
+            schema = 'default'
+            table = table_name
+
+        # 构建用于Confluence的上下文
+        context = {
+            "table_name": table_name,
+            "enhanced_code": enhanced_code,
+            "explanation": f"为表 {table_name} 增加了 {len(fields)} 个新字段",
+            "improvements": [f"增加字段: {field.get('physical_name', '')}" for field in fields],
+            "alter_sql": alter_table_sql
+        }
+
+        writer({"progress": "正在收集模型文档信息..."})
+
+        # 创建Confluence工具实例
+        tools = ConfluenceWorkflowTools()
+
+        # 收集文档信息
+        doc_info = await tools.collect_model_documentation_info(context)
+
+        if "error" in doc_info:
+            return {
+                "success": False,
+                "error": f"收集文档信息失败: {doc_info['error']}"
+            }
+
+        # 根据用户要求直接构建model_config
+        writer({"progress": "正在构建自定义model_config..."})
+
+        # 获取相关人员信息
+        stakeholders = tools._get_model_stakeholders(schema)
+        current_date = datetime.now().strftime('%Y-%m-%d')
+
+        # 构建自定义的model_config（按用户要求）
+        custom_model_config = {
+            "title": f"{current_date}: {model_name} - Model Enhancement" if model_name else f"{current_date}: {table_name} - Model Enhancement",
+            "requirement_description": f"为 {table_name} 增加了 {len(fields)} 个新字段以支持业务需求",
+            "entity_list": f"{schema}.{model_name}" if model_name else table_name,
+            "review_requesters": stakeholders.get("requesters", ["@EDW Requester"]),
+            "reviewer_mandatory": stakeholders.get("reviewers", ["@EDW Reviewer"])[0] if stakeholders.get("reviewers") else "@EDW Reviewer",
+            "knowledge_link": "待添加知识库链接",
+            "review_date": datetime.now().strftime('%Y年%m月%d日'),
+            "status_tags": [
+                {"title": "ENHANCED", "color": "Green"},
+                {"title": "PENDING REVIEW", "color": "Yellow"},
+                {"title": "NEW FIELDS", "color": "Blue"} if fields else {"title": "UPDATED", "color": "Blue"}
+            ],
+            "dataflow": {
+                "source": f"Original {table_name}",
+                "target": f"Enhanced {table_name}"
+            },
+            "model_fields": []
+        }
+
+        # 构建model_fields - 添加新增字段信息（按用户指定格式）
+        if fields:
+            for field in fields:
+                field_info = {
+                    "schema": schema,
+                    "mode_name": model_name or f"{table.replace('_', ' ').title()}",
+                    "table_name": table,
+                    "attribute_name": field.get('attribute_name', field.get('physical_name', '')),
+                    "column_name": field.get('physical_name', ''),
+                    "column_type": field.get('data_type', 'STRING'),
+                    "pk": "N"  # 新增字段通常不是主键
+                }
+                custom_model_config["model_fields"].append(field_info)
+
+        writer({"progress": "正在创建Confluence页面..."})
+        writer({"confluence_info": {
+            "title": custom_model_config["title"],
+            "entity_list": custom_model_config["entity_list"],
+            "fields_count": len(custom_model_config["model_fields"])
+        }})
+
+        # 直接使用ConfluenceManager创建页面
+        from src.basic.confluence.confluence_operate import ConfluenceManager
+
+        cm = ConfluenceManager(
+            tools.confluence_url,
+            tools.username,
+            "",
+            tools.api_token
+        )
+
+        # 查找目标空间
+        target_space = cm.find_space_by_name(tools.target_space_name)
+        if not target_space:
+            raise Exception(f"未找到空间: {tools.target_space_name}")
+
+        space_key = target_space['key']
+
+        # 确定页面路径
+        page_path = tools._get_page_path_for_schema(schema)
+
+        # 查找父页面
+        parent_page = cm.find_page_by_path(space_key, page_path)
+        if not parent_page:
+            raise Exception(f"未找到父页面路径: {' -> '.join(page_path)}")
+
+        # 创建页面
+        new_page = cm.create_data_model_page(
+            space_key=space_key,
+            model_config=custom_model_config,
+            parent_id=parent_page['id']
+        )
+
+        if new_page:
+            # 添加标签
+            labels = ['EDW', 'Enhanced-Model', 'Auto-Generated', schema]
+            if model_name:
+                labels.append(model_name.replace(' ', '-'))
+            if fields:
+                labels.append('New-Fields')
+
+            cm.add_page_labels(new_page['id'], labels)
+
+            # 添加评论
+            reviewers = " ".join(stakeholders.get("reviewers", []))
+            requesters = " ".join(stakeholders.get("requesters", []))
+            comment = (
+                f"模型增强文档已自动创建完成。"
+                f"请相关审核人员({reviewers})和申请人员({requesters})进行审核确认。\n\n"
+                f"增强内容: 为 {table_name} 增加了 {len(fields)} 个新字段\n"
+                f"模型名称: {model_name or '待确认'}\n"
+                f"创建时间: {datetime.now().strftime('%Y年%m月%d日')}"
+            )
+            cm.create_page_comment(new_page['id'], comment)
+
+            page_url = f"{tools.confluence_url.rstrip('/')}/pages/viewpage.action?pageId={new_page['id']}"
+
+            result = {
+                "success": True,
+                "page_id": new_page['id'],
+                "page_title": new_page['title'],
+                "page_url": page_url,
+                "space": tools.target_space_name,
+                "labels": labels,
+                "creation_time": datetime.now().isoformat()
+            }
+        else:
+            raise Exception("页面创建失败")
+
+        writer({"progress": "Confluence文档创建成功"})
+        return result
+
+    except Exception as e:
+        error_msg = f"创建Confluence文档时发生异常: {str(e)}"
+        logger.error(error_msg)
+        writer({"error": error_msg})
+        return {
+            "success": False,
+            "error": error_msg
+        }
+
+
 def edw_confluence_node(state: EDWState):
-    """Confluence文档更新节点"""
+    """增强的Confluence文档更新节点"""
     print(">>> edw_confluence Node")
     writer = get_stream_writer()
     writer({"node": ">>> edw_confluence"})
-    writer({"status": "更新Confluence文档"})
-    return {}
+
+    try:
+        # 提取状态中的信息
+        table_name = state.get("table_name", "")
+        model_name = state.get("model_name", "") or state.get("model_attribute_name", "")
+        enhanced_code = state.get("enhance_code", "")
+        alter_table_sql = state.get("alter_table_sql", "")
+        fields = state.get("fields", [])
+        user_id = state.get("user_id", "")
+
+        writer({"status": f"开始创建Confluence文档: {table_name}"})
+
+        # 验证必要信息
+        if not table_name:
+            error_msg = "缺少表名信息，无法创建Confluence文档"
+            writer({"error": error_msg})
+            return {
+                "error_message": error_msg,
+                "user_id": user_id
+            }
+
+        if not enhanced_code:
+            error_msg = "缺少增强代码，无法创建完整的Confluence文档"
+            writer({"warning": error_msg})
+            # 不阻止流程，但记录警告
+
+        if not fields:
+            error_msg = "没有新增字段信息，将创建基础文档"
+            writer({"warning": error_msg})
+
+        writer({"progress": "正在准备Confluence文档创建..."})
+        writer({"confluence_details": {
+            "table_name": table_name,
+            "model_name": model_name,
+            "fields_count": len(fields),
+            "has_enhanced_code": bool(enhanced_code),
+            "has_alter_sql": bool(alter_table_sql)
+        }})
+
+        # 异步执行Confluence文档创建
+        confluence_result = asyncio.run(_create_confluence_documentation(
+            table_name=table_name,
+            model_name=model_name,
+            enhanced_code=enhanced_code,
+            fields=fields,
+            alter_table_sql=alter_table_sql,
+            writer=writer,
+            user_id=user_id
+        ))
+
+        if confluence_result.get("success"):
+            writer({"status": "Confluence文档创建成功"})
+            writer({"result": "文档已上传到Confluence"})
+            writer({"page_url": confluence_result.get("page_url", "")})
+
+            # 保存Confluence信息到state中，方便后续节点使用
+            confluence_page_url = confluence_result.get("page_url", "")
+            confluence_page_id = confluence_result.get("page_id", "")
+            confluence_title = confluence_result.get("page_title", "")
+
+            # 输出给用户查看
+            writer({"confluence_summary": {
+                "page_url": confluence_page_url,
+                "page_id": confluence_page_id,
+                "title": confluence_title,
+                "status": "创建成功"
+            }})
+
+            return {
+                "user_id": user_id,
+                # 将Confluence信息保存到state中供后续节点使用
+                "confluence_page_url": confluence_page_url,  # 重要：保存页面链接到state
+                "confluence_page_id": confluence_page_id,    # 保存页面ID到state
+                "confluence_title": confluence_title,        # 保存页面标题到state
+                # 其他详细结果
+                "confluence_result": confluence_result,
+                "confluence_creation_time": confluence_result.get("creation_time"),
+                "session_state": "confluence_completed"
+            }
+        else:
+            error_msg = confluence_result.get("error", "未知错误")
+            writer({"error": f"Confluence文档创建失败: {error_msg}"})
+            return {
+                "error_message": error_msg,
+                "user_id": user_id,
+                "confluence_attempted": True
+            }
+
+    except Exception as e:
+        error_msg = f"Confluence节点处理失败: {str(e)}"
+        logger.error(error_msg)
+        writer({"error": error_msg})
+        return {
+            "error_message": error_msg,
+            "user_id": state.get("user_id", "")
+        }
+
+
+async def _update_adb_notebook(adb_path: str, enhanced_code: str, language: str, writer) -> dict:
+    """异步更新ADB笔记本的核心函数"""
+    try:
+        from src.mcp.mcp_client import get_mcp_client
+
+        writer({"progress": f"正在连接MCP服务更新ADB笔记本: {adb_path}"})
+
+        async with get_mcp_client() as client:
+            if client:
+                try:
+                    # 获取所有MCP工具
+                    tools = await client.get_tools()
+
+                    # 查找 import_notebook 工具
+                    import_tool = None
+                    for tool in tools:
+                        if hasattr(tool, 'name') and 'import' in tool.name.lower() and 'notebook' in tool.name.lower():
+                            import_tool = tool
+                            break
+
+                    if import_tool:
+                        writer({"progress": f"找到MCP工具: {import_tool.name}"})
+
+                        # 调用import_notebook方法
+                        result = await import_tool.ainvoke({
+                            "path": adb_path,
+                            "content": enhanced_code,
+                            "language": language
+                        })
+
+                        writer({"progress": f"ADB笔记本更新成功: {adb_path}"})
+                        return {
+                            "success": True,
+                            "result": str(result),
+                            "adb_path": adb_path,
+                            "language": language
+                        }
+
+                    else:
+                        error_msg = "未找到import_notebook相关的MCP工具"
+                        logger.error(error_msg)
+                        return {
+                            "success": False,
+                            "error": error_msg
+                        }
+
+                except Exception as e:
+                    error_msg = f"MCP工具调用失败: {str(e)}"
+                    logger.error(error_msg)
+                    return {
+                        "success": False,
+                        "error": error_msg
+                    }
+            else:
+                error_msg = "MCP客户端连接失败"
+                logger.error(error_msg)
+                return {
+                    "success": False,
+                    "error": error_msg
+                }
+
+    except Exception as e:
+        error_msg = f"更新ADB笔记本时发生异常: {str(e)}"
+        logger.error(error_msg)
+        return {
+            "success": False,
+            "error": error_msg
+        }
+
+
+def _detect_code_language(code_path: str, source_code: str = "") -> str:
+    """检测代码语言"""
+    if code_path:
+        if code_path.endswith('.sql'):
+            return 'SCALA'  # Databricks SQL笔记本通常使用SCALA语言标识
+        elif code_path.endswith('.py'):
+            return 'PYTHON'
+        elif code_path.endswith('.scala'):
+            return 'SCALA'
+        elif code_path.endswith('.r'):
+            return 'R'
+
+    # 从源代码内容推断
+    if source_code:
+        source_code_lower = source_code.lower()
+        if 'spark.sql' in source_code_lower or 'pyspark' in source_code_lower or 'import ' in source_code_lower:
+            return 'PYTHON'
+        elif 'select ' in source_code_lower or 'create table' in source_code_lower:
+            return 'SQL'
+
+    # 默认返回Python
+    return 'PYTHON'
 
 
 def edw_adb_update_node(state: EDWState):
-    """ADB数据库更新节点"""
+    """增强的ADB数据库更新节点 - 调用MCP服务更新笔记本"""
     print(">>> edw_adb_update Node")
     writer = get_stream_writer()
     writer({"node": ">>> edw_adb_update"})
-    writer({"status": "更新ADB数据库"})
-    return {}
+
+    try:
+        # 提取状态中的信息
+        adb_code_path = state.get("adb_code_path")
+        enhanced_code = state.get("enhance_code")
+        code_path = state.get("code_path")
+        source_code = state.get("source_code", "")
+        user_id = state.get("user_id", "")
+        table_name = state.get("table_name")
+
+        writer({"status": f"开始更新ADB笔记本: {table_name}"})
+
+        # 验证必要参数
+        if not adb_code_path:
+            error_msg = "缺少ADB代码路径"
+            writer({"error": error_msg})
+            return {
+                "error_message": error_msg,
+                "user_id": user_id
+            }
+
+        if not enhanced_code:
+            error_msg = "缺少增强后的代码"
+            writer({"error": error_msg})
+            return {
+                "error_message": error_msg,
+                "user_id": user_id
+            }
+
+        # 检测代码语言
+        language = _detect_code_language(code_path or adb_code_path, source_code)
+        writer({"progress": f"检测到代码语言: {language}"})
+
+        writer({"progress": "准备更新ADB笔记本..."})
+        writer({"adb_update_info": {
+            "path": adb_code_path,
+            "language": language,
+            "code_length": len(enhanced_code)
+        }})
+
+        # 异步执行ADB更新
+        import asyncio
+        update_result = asyncio.run(_update_adb_notebook(
+            adb_path=adb_code_path,
+            enhanced_code=enhanced_code,
+            language=language,
+            writer=writer
+        ))
+
+        if update_result.get("success"):
+            writer({"status": "ADB笔记本更新成功"})
+            writer({"result": "ADB代码更新完成"})
+
+            return {
+                "user_id": user_id,
+                "adb_update_result": update_result,
+                "adb_path_updated": adb_code_path,
+                "code_language": language,
+                "update_timestamp": datetime.now().isoformat(),
+                "session_state": "adb_update_completed"
+            }
+        else:
+            error_msg = update_result.get("error", "未知错误")
+            writer({"error": f"ADB更新失败: {error_msg}"})
+            return {
+                "error_message": error_msg,
+                "user_id": user_id,
+                "adb_path": adb_code_path
+            }
+
+    except Exception as e:
+        error_msg = f"ADB更新节点处理失败: {str(e)}"
+        logger.error(error_msg)
+        writer({"error": error_msg})
+        return {
+            "error_message": error_msg,
+            "user_id": state.get("user_id", "")
+        }
 
 
 def model_routing_fun(state: EDWState):
@@ -1282,21 +2104,22 @@ if __name__ == "__main__":
         user_id = str(uuid.uuid4())[:8]
 
     print(f"当前用户ID: {user_id}")
-    
+
     # 显示初始系统状态
     print(f"配置文件路径: {config_manager.config_dir}")
-    
+
     # 显示MCP连接配置
     databricks_config = config_manager.get_mcp_server_config("databricks")
     if databricks_config:
-        if databricks_config.type == "sse":
-            print(f"MCP连接模式: SSE - {databricks_config.base_url}")
+        if databricks_config.transport == "sse":
+            print(f"MCP连接模式: SSE - {databricks_config.url}")
             print(f"连接参数: 超时={databricks_config.timeout}s, 重试={databricks_config.retry_count}次")
         else:
-            print(f"MCP连接模式: 子进程 - {databricks_config.command}")
+            print(f"MCP连接模式: {databricks_config.transport}")
+            print(f"连接参数: 超时={databricks_config.timeout}s, 重试={databricks_config.retry_count}次")
     else:
         print("MCP连接模式: 默认配置")
-    
+
     # 显示缓存状态
     if cache_manager:
         stats = cache_manager.get_stats()
@@ -1304,7 +2127,7 @@ if __name__ == "__main__":
     else:
         print("缓存系统已禁用")
     print(f"\n使用 '/test sse' 命令测试SSE连接")
-    
+    index = 0
     while True:
         try:
             readline = input("\n用户输入: ")
@@ -1321,7 +2144,7 @@ if __name__ == "__main__":
                 if cache_manager is None:
                     print("缓存系统已禁用")
                     continue
-                    
+
                 parts = readline.split()
                 if len(parts) == 1 or parts[1] == "stats":
                     # 显示缓存统计
@@ -1334,7 +2157,7 @@ if __name__ == "__main__":
                     print(f"命中率: {stats['hit_rate']}")
                     print(f"TTL设置: {stats['ttl_seconds']}秒")
                     print(f"内存使用估算: {stats['memory_usage_estimate']}字节")
-                    
+
                     # 显示已缓存的表
                     cached_tables = cache_manager.get_cached_tables()
                     if cached_tables:
@@ -1344,7 +2167,7 @@ if __name__ == "__main__":
                         if len(cached_tables) > 10:
                             print(f"  ... 还有 {len(cached_tables) - 10} 个表")
                     continue
-                    
+
                 elif parts[1] == "clear":
                     # 清除缓存
                     if len(parts) > 2:
@@ -1357,7 +2180,7 @@ if __name__ == "__main__":
                         cache_manager.clear_cache()
                         print("已清除所有缓存")
                     continue
-                    
+
                 elif parts[1] == "help":
                     print("\n=== 缓存管理命令 ===")
                     print("/cache stats    - 显示缓存统计信息")
@@ -1365,7 +2188,7 @@ if __name__ == "__main__":
                     print("/cache clear <表名模式> - 清除匹配的缓存")
                     print("/cache help     - 显示此帮助信息")
                     continue
-            
+
             # 处理配置管理命令
             if readline.lower().startswith("/config"):
                 parts = readline.split()
@@ -1390,16 +2213,16 @@ if __name__ == "__main__":
                     except Exception as e:
                         print(f"获取配置信息失败: {e}")
                     continue
-                    
+
                 elif parts[1] == "reload":
                     # 重新加载配置
                     try:
                         config_manager.reload_config()
                         print("配置已重新加载")
-                        
+
                         # 重新初始化组件
                         system_config = config_manager.get_system_config()
-                        
+
                         # 重新初始化缓存管理器
                         cache_config = config_manager.get_cache_config()
                         if cache_config.enabled:
@@ -1411,11 +2234,11 @@ if __name__ == "__main__":
                         else:
                             cache_manager = None
                             print("缓存已禁用")
-                        
+
                     except Exception as e:
                         print(f"重新加载配置失败: {e}")
                     continue
-                    
+
                 elif parts[1] == "path":
                     # 显示配置文件路径
                     print(f"\n=== 配置文件路径 ===")
@@ -1423,7 +2246,7 @@ if __name__ == "__main__":
                     print(f"主配置文件: {config_manager.config_file}")
                     print(f"提示词文件: {config_manager.prompts_file}")
                     continue
-                    
+
                 elif parts[1] == "help":
                     print("\n=== 配置管理命令 ===")
                     print("/config show     - 显示当前配置")
@@ -1435,21 +2258,24 @@ if __name__ == "__main__":
             # 使用统一配置管理器 - 主会话
             config = SessionManager.get_config(user_id, "main")
 
-            # 创建标准消息格式
+            # 创建标准消息格式，包含会话状态
             initial_state = {
                 "messages": [create_message_from_input(readline)],
-                "user_id": user_id
+                "user_id": user_id,
             }
 
-            print("\n处理中...")
 
             displayed_content = set()  # 避免重复显示相同内容
-            
+            final_state = None  # 跟踪最终状态
+
+
             for chunk in guid.stream(initial_state, config, stream_mode="updates"):
                 if chunk:
                     # 统一处理所有节点的输出，不针对特定节点
                     for node_name, node_data in chunk.items():
+                        # 更新最终状态
                         if isinstance(node_data, dict):
+                            final_state = node_data
                             # 优先处理包含messages的输出（最重要的AI响应）
                             if "messages" in node_data and node_data["messages"]:
                                 messages = node_data["messages"]

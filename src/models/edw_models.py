@@ -18,6 +18,8 @@ class ModelEnhanceRequest(BaseModel):
     table_name: str = Field(description="需要增强的表名，格式如：dwd_fi.fi_invoice_item")
     logic_detail: str = Field(description="具体的增强逻辑描述")
     enhancement_type: Optional[str] = Field(description="增强类型：add_field(添加字段)、modify_logic(修改逻辑)、optimize_query(优化查询)等", default="add_field")
+    model_attribute_name: Optional[str] = Field(description="模型属性名称（必须是英文，如：Finance Invoice Header）", default="")
+    business_purpose: Optional[str] = Field(description="业务用途描述", default="")
     field_info: Optional[str] = Field(description="字段信息的文本描述（用于向后兼容）", default="")
     fields: Optional[List[FieldDefinition]] = Field(description="新增字段列表", default_factory=list)
     business_requirement: Optional[str] = Field(description="业务需求背景", default="")

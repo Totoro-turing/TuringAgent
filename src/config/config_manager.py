@@ -77,14 +77,10 @@ class ConfigManager:
         return EDWConfig(
             mcp_servers={
                 "databricks": MCPServerConfig(
-                    type="sse",
-                    host="127.0.0.1",
-                    port=8000,
-                    base_url="http://127.0.0.1:8000",
+                    url="http://127.0.0.1:8000",
+                    transport="sse",
                     timeout=30,
                     retry_count=3,
-                    connection_pool_size=10,
-                    keep_alive=True,
                     env={
                         "DATABRICKS_HOST": os.getenv("DATABRICKS_HOST", ""),
                         "DATABRICKS_TOKEN": os.getenv("DATABRICKS_TOKEN", "")
@@ -261,19 +257,8 @@ class ConfigManager:
             config_data = {
                 'mcp_servers': {
                     name: {
-                        'type': server.type,
-                        **(
-                            {
-                                'command': server.command,
-                                'args': server.args,
-                            } if server.type == 'subprocess' else {
-                                'host': server.host,
-                                'port': server.port,
-                                'base_url': server.base_url,
-                                'connection_pool_size': server.connection_pool_size,
-                                'keep_alive': server.keep_alive
-                            }
-                        ),
+                        'url': server.url,
+                        'transport': server.transport,
                         'env': server.env,
                         'timeout': server.timeout,
                         'retry_count': server.retry_count
