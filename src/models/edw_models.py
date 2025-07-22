@@ -1,0 +1,49 @@
+"""
+EDW系统数据模型定义
+"""
+
+from typing import List, Optional
+from pydantic import BaseModel, Field
+
+class FieldDefinition(BaseModel):
+    """字段定义"""
+    physical_name: str = Field(description="字段的物理名称，如：invoice_doc_no")
+    attribute_name: str = Field(description="字段的属性名称/业务名称，如：Invoice Document Number")
+    data_type: Optional[str] = Field(description="字段数据类型，如：STRING, INT, DECIMAL(10,2)等", default="STRING")
+    is_nullable: Optional[bool] = Field(description="是否可为空", default=True)
+    comment: Optional[str] = Field(description="字段备注", default="")
+
+class ModelEnhanceRequest(BaseModel):
+    """模型增强请求数据模型"""
+    table_name: str = Field(description="需要增强的表名，格式如：dwd_fi.fi_invoice_item")
+    logic_detail: str = Field(description="具体的增强逻辑描述")
+    enhancement_type: Optional[str] = Field(description="增强类型：add_field(添加字段)、modify_logic(修改逻辑)、optimize_query(优化查询)等", default="add_field")
+    field_info: Optional[str] = Field(description="字段信息的文本描述（用于向后兼容）", default="")
+    fields: Optional[List[FieldDefinition]] = Field(description="新增字段列表", default_factory=list)
+    business_requirement: Optional[str] = Field(description="业务需求背景", default="")
+    
+    def validate_completeness(self) -> tuple[bool, list[str]]:
+        """验证信息完整性，返回(是否完整, 缺失信息描述列表)"""
+        missing_info = []
+        
+        # 基础字段验证
+        if not self.table_name.strip() or self.table_name.strip() == "信息不完整":
+            missing_info.append("表名")
+            
+        if not self.logic_detail.strip() or self.logic_detail.strip() == "信息不完整":
+            missing_info.append("增强逻辑描述")
+            
+        # 如果是添加字段类型，需要额外验证
+        if self.enhancement_type == "add_field" or any(keyword in self.logic_detail for keyword in ["增加字段", "新增字段", "添加字段"]):
+            # 检查是否有字段定义
+            if not self.fields or len(self.fields) == 0:
+                missing_info.append("字段定义（至少需要提供一个字段的物理名称和属性名称）")
+            else:
+                # 检查每个字段的完整性
+                for i, field in enumerate(self.fields):
+                    if not field.physical_name.strip():
+                        missing_info.append(f"第{i+1}个字段的物理名称")
+                    if not field.attribute_name.strip():
+                        missing_info.append(f"第{i+1}个字段的属性名称")
+            
+        return len(missing_info) == 0, missing_info
