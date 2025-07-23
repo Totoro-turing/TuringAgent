@@ -15,14 +15,9 @@ from src.config import get_config_manager
 from langchain.prompts import PromptTemplate
 from langgraph.graph import StateGraph, START, END
 from langgraph.config import get_stream_writer
-from langchain_core.messages import AnyMessage, HumanMessage
+from langchain_core.messages import AnyMessage, HumanMessage, AIMessage
 from typing import List, TypedDict, Annotated, Optional
 from operator import add
-
-def keep_latest(current, new):
-    """保持最新值的 reducer"""
-    return new if new is not None else current
-
 from dotenv import load_dotenv
 from langgraph.prebuilt import create_react_agent
 from src.basic.filesystem.file_operate import FileSystemTool
@@ -428,36 +423,39 @@ async def _get_global_code_enhancement_agent():
 class EDWState(TypedDict):
     """EDW系统统一状态管理"""
     messages: Annotated[List[AnyMessage], add]
-    type: Annotated[str, keep_latest]  # 任务类型：other, model_enhance, model_add等
-    user_id: Annotated[str, keep_latest]  # 用户ID，用于会话隔离
+    type: str  # 任务类型：other, model_enhance, model_add等
+    user_id: str  # 用户ID，用于会话隔离
 
     # 模型开发相关信息
-    table_name: Annotated[Optional[str], keep_latest]  # 表名
-    code_path: Annotated[Optional[str], keep_latest]  # 代码路径
-    adb_code_path: Annotated[Optional[str], keep_latest]  # ADB中的代码路径（从code_path转换而来）
-    source_code: Annotated[Optional[str], keep_latest]  # 源代码
-    enhance_code: Annotated[Optional[str], keep_latest]  # 增强后的代码
-    create_table_sql: Annotated[Optional[str], keep_latest]  # 建表语句
-    alter_table_sql: Annotated[Optional[str], keep_latest]  # 修改表语句
-    model_name: Annotated[Optional[str], keep_latest]  # 模型名称（从表comment提取，必须为英文）
-    model_attribute_name: Annotated[Optional[str], keep_latest]  # 用户输入的模型属性名称（英文）
-    business_purpose: Annotated[Optional[str], keep_latest]  # 业务用途描述
+    table_name: Optional[str]  # 表名
+    code_path: Optional[str]  # 代码路径
+    adb_code_path: Optional[str]  # ADB中的代码路径（从code_path转换而来）
+    source_code: Optional[str]  # 源代码
+    enhance_code: Optional[str]  # 增强后的代码
+    create_table_sql: Optional[str]  # 建表语句
+    alter_table_sql: Optional[str]  # 修改表语句
+    model_name: Optional[str]  # 模型名称（从表comment提取，必须为英文）
+    model_attribute_name: Optional[str]  # 用户输入的模型属性名称（英文）
+    business_purpose: Optional[str]  # 业务用途描述
 
     # 信息收集相关
-    requirement_description: Annotated[Optional[str], keep_latest]  # 需求描述
-    logic_detail: Annotated[Optional[str], keep_latest]  # 逻辑详情
-    fields: Annotated[Optional[List[dict]], keep_latest]  # 新增字段列表（每个字段包含physical_name, attribute_name等）
-    collected_info: Annotated[Optional[dict], keep_latest]  # 已收集的信息
-    missing_info: Optional[List[str]]  # 缺失的信息列表（临时状态，允许重置）
+    requirement_description: Optional[str]  # 需求描述
+    logic_detail: Optional[str]  # 逻辑详情
+    fields: Optional[List[dict]]  # 新增字段列表（每个字段包含physical_name, attribute_name等）
+    collected_info: Optional[dict]  # 已收集的信息
+    missing_info: Optional[List[str]]  # 缺失的信息列表
 
     # Confluence文档相关
-    confluence_page_url: Annotated[Optional[str], keep_latest]  # Confluence页面链接
-    confluence_page_id: Annotated[Optional[str], keep_latest]  # Confluence页面ID
-    confluence_title: Annotated[Optional[str], keep_latest]  # Confluence页面标题
+    confluence_page_url: Optional[str]  # Confluence页面链接
+    confluence_page_id: Optional[str]  # Confluence页面ID
+    confluence_title: Optional[str]  # Confluence页面标题
 
     # 会话状态
     session_state: Optional[str]  # 当前会话状态
     error_message: Optional[str]  # 错误信息
+    
+    # 处理状态字段
+    validation_status: Optional[str]  # 验证状态：incomplete_info, completed, processing
 
 
 def navigate_node(state: EDWState):
@@ -495,7 +493,7 @@ def navigate_node(state: EDWState):
         if "other" in classification:
             return {"type": "other", "user_id": state.get("user_id", "")}
         else:
-            return {"type": "model_enhance", "user_id": state.get("user_id", "")}
+            return {"type": "model_dev", "user_id": state.get("user_id", "")}
     except Exception as e:
         error_msg = f"导航节点处理失败: {str(e)}"
         logger.error(error_msg)
@@ -590,18 +588,22 @@ def edw_model_node(state: EDWState):
         return {"type": "error", "user_id": state.get("user_id", ""), "error_message": error_msg}
 
 
-def search_table_cd(table_name: str) -> str:
+def search_table_cd(table_name: str) -> dict:
     """
     查询某个表的源代码
-    :param table_name: 必要参数，具体表名比如dwd_fi.fi_invoice_item，
-    :return：返回结果对象类型为解析之后的JSON格式对象，并用字符串形式进行表示，其中包含了源代码信息
+    :param table_name: 必要参数，具体表名比如dwd_fi.fi_invoice_item
+    :return: 返回结果字典，包含状态和源代码信息
+             成功时: {"status": "success", "code": "...", "table_name": "...", ...}
+             失败时: {"status": "error", "message": "错误信息"}
     """
     system = FileSystemTool()
     schema = table_name.split(".")[0]
     name = table_name.split(".")[1]
+    logger.info(f"正在查找表: {table_name} 代码")
+
     files = system.search_files_by_name("nb_" + name)
     if not files:
-        return f'{{"status": "error", "message": "未找到表 {table_name} 的相关代码"}}'
+        return {"status": "error", "message": f"未找到表 {table_name} 的相关代码"}
     file = [i for i in files if schema in str(i)][0]
     if file.name.endswith(('.sql', '.py')):
         file_path = os.path.join(os.getenv("LOCAL_REPO_PATH"), str(file))
@@ -625,8 +627,8 @@ def search_table_cd(table_name: str) -> str:
             },
             'timestamp': datetime.now().isoformat()
         }
-        return str(file_info)
-    return f'{{"status": "error", "message": "暂不支持的代码文件格式: {file.name}, 仅支持 .sql 和 .py 文件。请检查表名或代码文件格式。"}}'
+        return file_info
+    return {"status": "error", "message": f"暂不支持的代码文件格式: {file.name}, 仅支持 .sql 和 .py 文件。请检查表名或代码文件格式。"}
 
 
 # 模型增强前针对数据进行校验验证
@@ -672,8 +674,19 @@ async def edw_model_enhance_data_validation_node(state: EDWState):
                     error_msg = f"模型名称格式不正确：{name_error}\n\n请使用标准的英文格式，例如：\n- Finance Invoice Header\n- Customer Order Detail\n- Inventory Management System"
                     writer({"error": error_msg})
                     writer({"content": error_msg})
+                    
+                    # 将交互保存到验证智能体历史
+                    validation_messages = [
+                        HumanMessage(content=content),
+                        AIMessage(content=f"识别到的模型名称：{parsed_request.model_attribute_name}\n\n{error_msg}")
+                    ]
+                    valid_agent.invoke(
+                        {"messages": validation_messages},
+                        config
+                    )
+                    
                     return {
-                        "type": "incomplete_info",
+                        "validation_status": "incomplete_info",
                         "error_message": error_msg,
                         "table_name": parsed_request.table_name if parsed_request.table_name else "",
                         "user_id": state.get("user_id", ""),
@@ -700,9 +713,20 @@ async def edw_model_enhance_data_validation_node(state: EDWState):
                 writer({"missing_fields": missing_fields})
                 writer({"content": complete_message})  # 确保用户能看到提示
 
-                # 返回特殊的type标记，表示信息不完整需要直接结束
+                # 将交互保存到验证智能体历史
+                parsed_info_str = f"已识别信息：\n- 表名：{parsed_request.table_name or '未识别'}\n- 逻辑描述：{parsed_request.logic_detail or '未识别'}\n- 字段信息：{len(parsed_request.fields) if parsed_request.fields else 0}个字段"
+                validation_messages = [
+                    HumanMessage(content=content),
+                    AIMessage(content=f"{parsed_info_str}\n\n{complete_message}")
+                ]
+                valid_agent.invoke(
+                    {"messages": validation_messages},
+                    config
+                )
+
+                # 返回特殊的validation_status标记，表示信息不完整需要直接结束
                 return {
-                    "type": "incomplete_info",  # 特殊标记
+                    "validation_status": "incomplete_info",  # 特殊标记
                     "missing_info": missing_fields,
                     "error_message": complete_message,
                     "table_name": parsed_request.table_name if "table_name" not in missing_fields else "",
@@ -717,18 +741,26 @@ async def edw_model_enhance_data_validation_node(state: EDWState):
 
             # 调用search_table_cd查询表的源代码
             try:
-                table_code_result = search_table_cd(table_name)
-                logger.info(f"表代码查询结果: {table_code_result[:200]}...")
-
-                # 解析表代码查询结果
-                code_info = json.loads(table_code_result) if isinstance(table_code_result, str) else table_code_result
+                code_info = search_table_cd(table_name)
+                logger.info(f"表代码查询结果: {str(code_info)[:200] if code_info else 'None'}...")
 
                 if code_info.get("status") == "error":
                     error_msg = f"未找到表 {table_name} 的源代码: {code_info.get('message', '未知错误')}\n请确认表名是否正确。"
                     writer({"error": error_msg})
                     writer({"content": error_msg})
+                    
+                    # 将交互保存到验证智能体历史
+                    validation_messages = [
+                        HumanMessage(content=content),
+                        AIMessage(content=f"查询表 {table_name} 的源代码失败。\n\n{error_msg}")
+                    ]
+                    valid_agent.invoke(
+                        {"messages": validation_messages},
+                        config
+                    )
+                    
                     return {
-                        "type": "incomplete_info",  # 标记为信息不完整
+                        "validation_status": "incomplete_info",  # 标记为信息不完整
                         "error_message": error_msg,
                         "table_name": table_name,
                         "user_id": state.get("user_id", ""),
@@ -801,8 +833,19 @@ async def edw_model_enhance_data_validation_node(state: EDWState):
                         writer({"content": validation_error_msg})
                         writer({"field_validation": field_validation})
 
+                        # 将交互保存到验证智能体历史
+                        field_info_str = f"尝试验证的字段：{', '.join([f['physical_name'] for f in parsed_request.fields])}"
+                        validation_messages = [
+                            HumanMessage(content=content),
+                            AIMessage(content=f"{field_info_str}\n\n{validation_error_msg}")
+                        ]
+                        valid_agent.invoke(
+                            {"messages": validation_messages},
+                            config
+                        )
+
                         return {
-                            "type": "incomplete_info",
+                            "validation_status": "incomplete_info",
                             "error_message": validation_error_msg,
                             "field_validation": field_validation,
                             "table_name": table_name,
@@ -869,8 +912,19 @@ async def edw_model_enhance_data_validation_node(state: EDWState):
             logger.error(f"解析错误: {str(parse_error)}. 原始响应: {validation_result}")
             writer({"error": error_msg})
             writer({"content": error_msg})
+            
+            # 将交互保存到验证智能体历史
+            validation_messages = [
+                HumanMessage(content=content),
+                AIMessage(content=f"信息解析失败，可能是格式问题。\n\n{error_msg}")
+            ]
+            valid_agent.invoke(
+                {"messages": validation_messages},
+                config
+            )
+            
             return {
-                "type": "incomplete_info",  # 标记为信息不完整
+                "validation_status": "incomplete_info",  # 标记为信息不完整
                 "error_message": error_msg,
                 "user_id": state.get("user_id", ""),
                 "messages": [HumanMessage(error_msg)]
@@ -2028,16 +2082,15 @@ def validation_routing_fun(state: EDWState):
     """数据验证后的路由函数：决定继续处理还是直接结束"""
     print(">>> validation_routing_fun")
     print(f"State type: {state.get('type')}")
+    print(f"Validation status: {state.get('validation_status')}")
 
-    # 如果信息不完整，直接结束
-    if state.get("type") == "incomplete_info":
+    # 检查验证状态而非 type
+    if state.get("validation_status") == "incomplete_info":
         logger.info("信息不完整，直接结束流程")
         return END
-
-    # 如果是模型增强节点，继续处理
-    if state.get("type") == "model_enhance_node":
+    # 基于原始用户意图继续流程
+    if state.get("type") == "model_enhance":
         return "model_enhance_node"
-
     # 默认结束
     return END
 
@@ -2067,7 +2120,7 @@ model_dev = model_dev_graph.compile()
 
 def routing_fun(state: EDWState):
     """主路由函数：决定进入聊天还是模型处理"""
-    if state["type"] == "model_enhance":
+    if state["type"] in ["model_dev", "model_enhance", "model_add"]:
         return "model_node"
     return "chat_node"
 
@@ -2092,6 +2145,44 @@ guid = guid_graph.compile()
 def create_message_from_input(user_input: str) -> HumanMessage:
     """将用户输入转换为标准消息格式"""
     return HumanMessage(content=user_input)
+
+
+# 全局用户状态缓存
+user_persistent_states = {}
+
+def extract_persistent_fields(final_state: dict) -> dict:
+    """从最终状态中提取需要持久化的字段"""
+    persistent_fields = {
+        "type", "user_id", "table_name", "source_code", 
+        "enhance_code", "model_name", "model_attribute_name",
+        "confluence_page_url", "confluence_page_id", "confluence_title",
+        "fields", "collected_info", "requirement_description", "logic_detail"
+    }
+    
+    return {k: v for k, v in final_state.items() 
+            if k in persistent_fields and v is not None}
+
+def create_initial_state_with_history(user_input: str, user_id: str) -> dict:
+    """创建包含历史状态的初始状态"""
+    initial_state = {
+        "messages": [create_message_from_input(user_input)],
+        "user_id": user_id,
+    }
+    
+    # 合并历史持久化状态
+    if user_id in user_persistent_states:
+        historical_state = user_persistent_states[user_id]
+        for key, value in historical_state.items():
+            if key not in initial_state:  # 不覆盖新消息和user_id
+                initial_state[key] = value
+                
+    return initial_state
+
+def reset_user_state(user_id: str):
+    """重置用户状态"""
+    if user_id in user_persistent_states:
+        del user_persistent_states[user_id]
+        print(f"用户 {user_id} 的状态已重置")
 
 
 if __name__ == "__main__":
@@ -2255,14 +2346,16 @@ if __name__ == "__main__":
                     print("/config help     - 显示此帮助信息")
                     continue
 
+            # 处理状态重置命令
+            if readline.lower() == "/reset":
+                reset_user_state(user_id)
+                continue
+
             # 使用统一配置管理器 - 主会话
             config = SessionManager.get_config(user_id, "main")
 
-            # 创建标准消息格式，包含会话状态
-            initial_state = {
-                "messages": [create_message_from_input(readline)],
-                "user_id": user_id,
-            }
+            # 创建包含历史状态的初始状态
+            initial_state = create_initial_state_with_history(readline, user_id)
 
 
             displayed_content = set()  # 避免重复显示相同内容
@@ -2302,6 +2395,13 @@ if __name__ == "__main__":
                                 print(f"进度: {node_data['progress']}")
                             elif "warning" in node_data:
                                 print(f"警告: {node_data['warning']}")
+
+            # 执行完成后，保存持久化状态
+            if final_state:
+                persistent_state = extract_persistent_fields(final_state)
+                if persistent_state:
+                    user_persistent_states[user_id] = persistent_state
+                    logger.info(f"保存用户 {user_id} 的持久化状态: {list(persistent_state.keys())}")
 
         except KeyboardInterrupt:
             print("\n用户中断操作")

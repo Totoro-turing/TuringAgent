@@ -21,10 +21,3 @@ class LLMFactory:
 
 # langgraph 做法
 llm = LLMFactory.create_llm()
-
-agent = create_react_agent(
-    model=llm,
-    tools=[],
-    prompt="你是一个友好的小帮手",
-    checkpointer=checkpointer
-)
