@@ -83,7 +83,7 @@ class EDWAgentManager:
 - 如果用户提到"增加字段"、"新增字段"、"添加字段"等，必须将每个字段的信息提取到fields列表中
 - 每个字段必须包含：
   - physical_name: 物理名称（下划线连接的小写英文，如：invoice_doc_no）
-  - attribute_name: 属性名称，即对物理名称的描述（首字母大写的英文描述，如：Invoice Document Number)
+  - attribute_name: 属性名称，即对物理名称的描述（首字母大写的英文描述，如：Invoice Document Number)，如果用户没有明确提供请置空
 
 示例：
 用户输入："给表增加invoice_doc_no（Invoice Document Number）和customer_type（Customer Type）两个字段"

@@ -43,8 +43,12 @@ class ModelEnhanceRequest(BaseModel):
                 # 检查每个字段的完整性
                 for i, field in enumerate(self.fields):
                     if not field.physical_name.strip():
-                        missing_info.append(f"第{i + 1}个字段的物理名称")
+                        missing_info.append(f"第{i + 1}个字段的物理名称（请提供字段的英文名称）")
                     if not field.attribute_name.strip():
-                        missing_info.append(f"第{i + 1}个字段的属性名称")
+                        # 如果有物理名称，在提示中包含它
+                        if field.physical_name.strip():
+                            missing_info.append(f"字段 '{field.physical_name}' 的属性名称（英文描述）")
+                        else:
+                            missing_info.append(f"第{i + 1}个字段的属性名称")
 
         return len(missing_info) == 0, missing_info

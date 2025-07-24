@@ -120,14 +120,21 @@ async def _fetch_table_fields_from_db(table_name: str) -> dict:
         # 查询表结构
         desc_query = f"DESCRIBE {table_name}"
         result = await execute_sql_via_mcp(desc_query)
-
+        logger.info(f"调用mcp 工具 exec sql result: {result}")
         if result and "错误" not in result.lower():
             # 解析字段信息
             fields = []
             lines = result.split('\n')
             for line in lines[1:]:  # 跳过标题行
                 if line.strip():
-                    parts = line.split('\t') if '\t' in line else line.split()
+                    # 优先支持CSV格式（逗号分隔），然后是制表符，最后是空格
+                    if ',' in line:
+                        parts = line.split(',')
+                    elif '\t' in line:
+                        parts = line.split('\t')
+                    else:
+                        parts = line.split()
+                    
                     if len(parts) >= 2:
                         field_name = parts[0].strip()
                         field_type = parts[1].strip()
@@ -210,7 +217,7 @@ async def validate_fields_against_base_tables(fields: list, base_tables: list, s
     for table_name in base_tables:
         logger.info(f"正在查询底表字段信息: {table_name}")
         table_info = await get_table_fields_info(table_name)
-
+        logger.info(f"mcp返回信息: {table_info}")
         if table_info["status"] == "success":
             table_fields = [field["name"] for field in table_info["fields"]]
             all_base_fields.extend(table_fields)
@@ -239,14 +246,38 @@ async def validate_fields_against_base_tables(fields: list, base_tables: list, s
     }
 
     if not all_base_fields:
-        logger.warning("未能获取到任何底表字段信息，跳过字段验证")
-        return validation_result
+        # 检查是否是因为服务问题导致的失败
+        failed_tables = []
+        for table_name, fields_list in validation_result["base_tables_info"].items():
+            if not fields_list:  # 空列表表示查询失败
+                failed_tables.append(table_name)
+        
+        if failed_tables:
+            # 如果有表查询失败，返回服务错误
+            error_msg = f"无法获取底表字段信息，MCP服务可能存在问题。失败的表：{', '.join(failed_tables)}\n\n请检查数据服务状态，稍后再试。"
+            logger.error(f"MCP服务问题导致字段验证失败: {failed_tables}")
+            return {
+                "valid": False,
+                "service_error": True,
+                "error_message": error_msg,
+                "failed_tables": failed_tables,
+                "base_tables_info": validation_result["base_tables_info"],
+                "cache_performance": validation_result["cache_performance"]
+            }
+        else:
+            # 如果没有底表需要验证，返回成功
+            logger.info("没有底表需要验证字段关联性")
+            return validation_result
 
     logger.info(f"所有底表字段: {all_base_fields}")
 
     # 检查每个新增字段
     for field in fields:
-        physical_name = field.get("physical_name", "")
+        # 兼容字典和对象访问
+        if isinstance(field, dict):
+            physical_name = field.get("physical_name", "")
+        else:
+            physical_name = getattr(field, "physical_name", "")
 
         # 检查是否在底表中存在相似字段
         similar_fields = find_similar_fields(physical_name, all_base_fields)
@@ -650,9 +681,21 @@ async def edw_model_enhance_data_validation_node(state: EDWState):
 
         writer({"status": "正在分析用户需求..."})
 
+        # 构建消息列表，检查是否有之前的错误信息
+        if state.get("error_message") and state.get("validation_status") == "incomplete_info":
+            # 有之前的错误信息，构建对话历史
+            logger.info("检测到之前的验证错误，构建对话历史")
+            messages = [
+                AIMessage(content=state["error_message"]),  # AI的错误提示
+                HumanMessage(content=content)  # 用户的新输入
+            ]
+        else:
+            # 首次验证
+            messages = [HumanMessage(content=content)]
+
         # 使用验证代理提取关键信息
         response = valid_agent.invoke(
-            {"messages": [{"role": "user", "content": content}]},
+            {"messages": messages},
             config
         )
 
@@ -675,15 +718,7 @@ async def edw_model_enhance_data_validation_node(state: EDWState):
                     writer({"error": error_msg})
                     writer({"content": error_msg})
                     
-                    # 将交互保存到验证智能体历史
-                    validation_messages = [
-                        HumanMessage(content=content),
-                        AIMessage(content=f"识别到的模型名称：{parsed_request.model_attribute_name}\n\n{error_msg}")
-                    ]
-                    valid_agent.invoke(
-                        {"messages": validation_messages},
-                        config
-                    )
+                    # 不再需要调用 valid_agent.invoke()，因为错误信息已保存到状态中
                     
                     return {
                         "validation_status": "incomplete_info",
@@ -713,16 +748,7 @@ async def edw_model_enhance_data_validation_node(state: EDWState):
                 writer({"missing_fields": missing_fields})
                 writer({"content": complete_message})  # 确保用户能看到提示
 
-                # 将交互保存到验证智能体历史
-                parsed_info_str = f"已识别信息：\n- 表名：{parsed_request.table_name or '未识别'}\n- 逻辑描述：{parsed_request.logic_detail or '未识别'}\n- 字段信息：{len(parsed_request.fields) if parsed_request.fields else 0}个字段"
-                validation_messages = [
-                    HumanMessage(content=content),
-                    AIMessage(content=f"{parsed_info_str}\n\n{complete_message}")
-                ]
-                valid_agent.invoke(
-                    {"messages": validation_messages},
-                    config
-                )
+                # 不再需要调用 valid_agent.invoke()，因为错误信息已保存到状态中
 
                 # 返回特殊的validation_status标记，表示信息不完整需要直接结束
                 return {
@@ -749,15 +775,7 @@ async def edw_model_enhance_data_validation_node(state: EDWState):
                     writer({"error": error_msg})
                     writer({"content": error_msg})
                     
-                    # 将交互保存到验证智能体历史
-                    validation_messages = [
-                        HumanMessage(content=content),
-                        AIMessage(content=f"查询表 {table_name} 的源代码失败。\n\n{error_msg}")
-                    ]
-                    valid_agent.invoke(
-                        {"messages": validation_messages},
-                        config
-                    )
+                    # 不再需要调用 valid_agent.invoke()，因为错误信息已保存到状态中
                     
                     return {
                         "validation_status": "incomplete_info",  # 标记为信息不完整
@@ -790,37 +808,42 @@ async def edw_model_enhance_data_validation_node(state: EDWState):
                     )
 
                     if not field_validation["valid"]:
-                        # 构建字段验证错误信息
-                        invalid_fields_msg = []
-                        for invalid_field in field_validation["invalid_fields"]:
-                            field_msg = f"- **{invalid_field}**: 在底表中未找到相似字段"
+                        # 检查是否是MCP服务问题
+                        if field_validation.get("service_error"):
+                            # MCP服务问题
+                            validation_error_msg = field_validation["error_message"]
+                        else:
+                            # 字段验证失败
+                            invalid_fields_msg = []
+                            for invalid_field in field_validation["invalid_fields"]:
+                                field_msg = f"- **{invalid_field}**: 在底表中未找到相似字段"
 
-                            if invalid_field in field_validation["suggestions"]:
-                                suggestions = field_validation["suggestions"][invalid_field]
-                                if suggestions:
-                                    suggestion_list = []
-                                    for suggestion in suggestions[:3]:
-                                        if "similarity" in suggestion:
-                                            suggestion_list.append(f"{suggestion['field_name']} (相似度: {suggestion['similarity']:.2f})")
-                                        else:
-                                            suggestion_list.append(f"{suggestion['field_name']} ({suggestion.get('reason', '')})")
-                                    field_msg += f"\\n  建议字段: {', '.join(suggestion_list)}"
+                                if invalid_field in field_validation["suggestions"]:
+                                    suggestions = field_validation["suggestions"][invalid_field]
+                                    if suggestions:
+                                        suggestion_list = []
+                                        for suggestion in suggestions[:3]:
+                                            if "similarity" in suggestion:
+                                                suggestion_list.append(f"{suggestion['field_name']} (相似度: {suggestion['similarity']:.2f})")
+                                            else:
+                                                suggestion_list.append(f"{suggestion['field_name']} ({suggestion.get('reason', '')})")
+                                        field_msg += f"\\n  建议字段: {', '.join(suggestion_list)}"
 
-                            invalid_fields_msg.append(field_msg)
+                                invalid_fields_msg.append(field_msg)
 
-                        # 显示底表信息
-                        base_tables_info = []
-                        for table_name_info, fields_list in field_validation["base_tables_info"].items():
-                            if fields_list:
-                                base_tables_info.append(f"- **{table_name_info}**: {', '.join(fields_list[:10])}{'...' if len(fields_list) > 10 else ''}")
+                            # 显示底表信息
+                            base_tables_info = []
+                            for table_name_info, fields_list in field_validation["base_tables_info"].items():
+                                if fields_list:
+                                    base_tables_info.append(f"- **{table_name_info}**: {', '.join(fields_list[:10])}{'...' if len(fields_list) > 10 else ''}")
 
-                        # 添加缓存性能信息
-                        cache_info = ""
-                        if "cache_performance" in field_validation:
-                            cache_perf = field_validation["cache_performance"]
-                            cache_info = f"\\n\\n**查询性能**: 耗时{cache_perf['duration_seconds']}秒, 缓存命中率: {cache_perf['overall_hit_rate']}"
+                            # 添加缓存性能信息
+                            cache_info = ""
+                            if "cache_performance" in field_validation:
+                                cache_perf = field_validation["cache_performance"]
+                                cache_info = f"\\n\\n**查询性能**: 耗时{cache_perf['duration_seconds']}秒, 缓存命中率: {cache_perf['overall_hit_rate']}"
 
-                        validation_error_msg = f"""字段验证失败，以下字段在底表中未找到相似字段：
+                            validation_error_msg = f"""字段验证失败，以下字段在底表中未找到相似字段：
 
 {chr(10).join(invalid_fields_msg)}
 
@@ -833,16 +856,7 @@ async def edw_model_enhance_data_validation_node(state: EDWState):
                         writer({"content": validation_error_msg})
                         writer({"field_validation": field_validation})
 
-                        # 将交互保存到验证智能体历史
-                        field_info_str = f"尝试验证的字段：{', '.join([f['physical_name'] for f in parsed_request.fields])}"
-                        validation_messages = [
-                            HumanMessage(content=content),
-                            AIMessage(content=f"{field_info_str}\n\n{validation_error_msg}")
-                        ]
-                        valid_agent.invoke(
-                            {"messages": validation_messages},
-                            config
-                        )
+                        # 不再需要调用 valid_agent.invoke()，因为错误信息已保存到状态中
 
                         return {
                             "validation_status": "incomplete_info",
@@ -870,8 +884,9 @@ async def edw_model_enhance_data_validation_node(state: EDWState):
 
                 # 将所有信息存储到state中
                 return {
-                    "type": "model_enhance_node",
+                    "type": "model_enhance",  # 保持原始类型以供路由函数识别
                     "user_id": state.get("user_id", ""),
+                    "validation_status": "completed",  # 重置验证状态为完成
                     # 存储解析的需求信息（直接使用Pydantic对象属性）
                     "table_name": table_name,
                     "logic_detail": logic_detail,
@@ -901,9 +916,11 @@ async def edw_model_enhance_data_validation_node(state: EDWState):
                 logger.error(error_msg)
                 writer({"error": error_msg})
                 return {
+                    "validation_status": "incomplete_info",  # 确保用户重试时能获得错误上下文
                     "error_message": error_msg,
                     "table_name": table_name,
-                    "user_id": state.get("user_id", "")
+                    "user_id": state.get("user_id", ""),
+                    "messages": [HumanMessage(error_msg)]
                 }
 
         except Exception as parse_error:
@@ -913,15 +930,7 @@ async def edw_model_enhance_data_validation_node(state: EDWState):
             writer({"error": error_msg})
             writer({"content": error_msg})
             
-            # 将交互保存到验证智能体历史
-            validation_messages = [
-                HumanMessage(content=content),
-                AIMessage(content=f"信息解析失败，可能是格式问题。\n\n{error_msg}")
-            ]
-            valid_agent.invoke(
-                {"messages": validation_messages},
-                config
-            )
+            # 不再需要调用 valid_agent.invoke()，因为错误信息已保存到状态中
             
             return {
                 "validation_status": "incomplete_info",  # 标记为信息不完整
@@ -934,7 +943,12 @@ async def edw_model_enhance_data_validation_node(state: EDWState):
         error_msg = f"数据验证失败: {str(e)}"
         logger.error(error_msg)
         writer({"error": error_msg})
-        return {"error_message": error_msg, "user_id": state.get("user_id", "")}
+        return {
+            "validation_status": "incomplete_info",  # 确保用户重试时能获得错误上下文
+            "error_message": error_msg,
+            "user_id": state.get("user_id", ""),
+            "messages": [HumanMessage(error_msg)]
+        }
 
 
 # 同步包装器函数，处理异步数据验证节点
@@ -1028,7 +1042,15 @@ async def _run_code_enhancement(table_name: str, source_code: str, adb_code_path
         writer({"progress": f"使用全局智能体，共 {len(tools)} 个工具"})
 
         # 构造字段信息字符串
-        fields_info = [f"{field['physical_name']} ({field['attribute_name']})" for field in fields]
+        fields_info = []
+        for field in fields:
+            if isinstance(field, dict):
+                physical_name = field['physical_name']
+                attribute_name = field['attribute_name']
+            else:
+                physical_name = field.physical_name
+                attribute_name = field.attribute_name
+            fields_info.append(f"{physical_name} ({attribute_name})")
 
         # 构造具体的任务消息（而不是修改agent的系统prompt）
         task_message = f"""请为以下数据模型进行代码增强：
@@ -1180,6 +1202,7 @@ def edw_model_enhance_node(state: EDWState):
         fields = state.get("fields", [])
         logic_detail = state.get("logic_detail")
         user_id = state.get("user_id", "")
+        enhancement_type = state.get("enhancement_type", "add_field")
 
         writer({"status": f"开始增强模型 {table_name}..."})
         writer({"progress": "正在初始化代码增强引擎"})
@@ -1217,6 +1240,11 @@ def edw_model_enhance_node(state: EDWState):
         if enhancement_result.get("success"):
             writer({"status": "模型增强完成"})
             writer({"result": "代码增强成功"})
+            
+            # 根据增强类型添加提示
+            if enhancement_type == "modify_logic":
+                writer({"info": "检测到逻辑修改类型，将跳过ADB更新、Confluence文档和邮件发送流程"})
+                writer({"content": "逻辑修改已完成，增强代码已生成。由于是纯逻辑修改，无需更新ADB和发送邮件。"})
 
             # 验证从表comment提取的模型名称格式
             table_comment_model_name = enhancement_result.get("table_comment", "")
@@ -1237,6 +1265,7 @@ def edw_model_enhance_node(state: EDWState):
                 "alter_table_sql": enhancement_result.get("alter_statements"),
                 "model_name": validated_model_name,  # 验证后的模型名称（从表comment提取）
                 "field_mappings": enhancement_result.get("field_mappings"),
+                "enhancement_type": enhancement_type,  # 保留增强类型供路由使用
                 "enhancement_summary": {
                     "table_name": table_name,
                     "fields_added": len(fields),
@@ -1250,7 +1279,8 @@ def edw_model_enhance_node(state: EDWState):
             writer({"error": f"代码增强失败: {error_msg}"})
             return {
                 "error_message": error_msg,
-                "user_id": user_id
+                "user_id": user_id,
+                "enhancement_type": enhancement_type  # 保留增强类型
             }
 
     except Exception as e:
@@ -1259,7 +1289,8 @@ def edw_model_enhance_node(state: EDWState):
         writer({"error": error_msg})
         return {
             "error_message": error_msg,
-            "user_id": state.get("user_id", "")
+            "user_id": state.get("user_id", ""),
+            "enhancement_type": state.get("enhancement_type", "")  # 保留增强类型
         }
 
 # 主要进行新增模型等相关工作
@@ -1418,8 +1449,13 @@ def _build_html_email_template(table_name: str, model_name: str, schema: str,
     fields_html = ""
     if fields:
         for field in fields:
-            physical_name = field.get('physical_name', '未知字段')
-            attribute_name = field.get('attribute_name', field.get('physical_name', ''))
+            # 兼容字典和对象访问
+            if isinstance(field, dict):
+                physical_name = field.get('physical_name', '未知字段')
+                attribute_name = field.get('attribute_name', field.get('physical_name', ''))
+            else:
+                physical_name = getattr(field, 'physical_name', '未知字段')
+                attribute_name = getattr(field, 'attribute_name', getattr(field, 'physical_name', ''))
             fields_html += f"""
                 <tr>
                     <td style="padding: 8px 12px; border-left: 3px solid #0078d4; background-color: #f8f9fa;">
@@ -1636,7 +1672,7 @@ async def _create_confluence_documentation(table_name: str, model_name: str,
             "table_name": table_name,
             "enhanced_code": enhanced_code,
             "explanation": f"为表 {table_name} 增加了 {len(fields)} 个新字段",
-            "improvements": [f"增加字段: {field.get('physical_name', '')}" for field in fields],
+            "improvements": [f"增加字段: {field.get('physical_name', '') if isinstance(field, dict) else getattr(field, 'physical_name', '')}" for field in fields],
             "alter_sql": alter_table_sql
         }
 
@@ -1685,13 +1721,23 @@ async def _create_confluence_documentation(table_name: str, model_name: str,
         # 构建model_fields - 添加新增字段信息（按用户指定格式）
         if fields:
             for field in fields:
+                # 兼容字典和对象访问
+                if isinstance(field, dict):
+                    attribute_name = field.get('attribute_name', field.get('physical_name', ''))
+                    column_name = field.get('physical_name', '')
+                    column_type = field.get('data_type', 'STRING')
+                else:
+                    attribute_name = getattr(field, 'attribute_name', getattr(field, 'physical_name', ''))
+                    column_name = getattr(field, 'physical_name', '')
+                    column_type = getattr(field, 'data_type', 'STRING')
+                
                 field_info = {
                     "schema": schema,
                     "mode_name": model_name or f"{table.replace('_', ' ').title()}",
                     "table_name": table,
-                    "attribute_name": field.get('attribute_name', field.get('physical_name', '')),
-                    "column_name": field.get('physical_name', ''),
-                    "column_type": field.get('data_type', 'STRING'),
+                    "attribute_name": attribute_name,
+                    "column_name": column_name,
+                    "column_type": column_type,
                     "pk": "N"  # 新增字段通常不是主键
                 }
                 custom_model_config["model_fields"].append(field_info)
@@ -2095,6 +2141,22 @@ def validation_routing_fun(state: EDWState):
     return END
 
 
+def enhancement_routing_fun(state: EDWState):
+    """增强完成后的路由函数：决定是否需要走后续流程"""
+    print(">>> enhancement_routing_fun")
+    enhancement_type = state.get("enhancement_type", "")
+    print(f"Enhancement type: {enhancement_type}")
+    
+    # 如果是仅修改逻辑，直接结束
+    if enhancement_type == "modify_logic":
+        logger.info("检测到仅修改逻辑，跳过ADB更新等后续流程")
+        return END
+    
+    # 其他类型继续走完整流程
+    logger.info(f"增强类型 {enhancement_type}，继续执行完整流程")
+    return "adb_update_node"
+
+
 model_dev_graph = (
     StateGraph(EDWState)
     .add_node("model_enhance_data_validation_node", edw_model_enhance_data_validation_node_sync)
@@ -2108,7 +2170,8 @@ model_dev_graph = (
     # 添加数据验证后的条件路由
     .add_conditional_edges("model_enhance_data_validation_node", validation_routing_fun, ["model_enhance_node", END])
     .add_edge("model_add_data_validation_node", "model_addition_node")
-    .add_edge("model_enhance_node", "adb_update_node")
+    # 修改为条件路由：根据增强类型决定是否需要走后续流程
+    .add_conditional_edges("model_enhance_node", enhancement_routing_fun, ["adb_update_node", END])
     .add_edge("model_addition_node", "adb_update_node")
     .add_edge("adb_update_node", "confluence_node")
     .add_edge("confluence_node", "email_node")
@@ -2123,6 +2186,7 @@ def routing_fun(state: EDWState):
     if state["type"] in ["model_dev", "model_enhance", "model_add"]:
         return "model_node"
     return "chat_node"
+
 
 
 # 一级导航图
@@ -2156,7 +2220,8 @@ def extract_persistent_fields(final_state: dict) -> dict:
         "type", "user_id", "table_name", "source_code", 
         "enhance_code", "model_name", "model_attribute_name",
         "confluence_page_url", "confluence_page_id", "confluence_title",
-        "fields", "collected_info", "requirement_description", "logic_detail"
+        "fields", "collected_info", "requirement_description", "logic_detail",
+        "enhancement_type", "validation_status"  # 添加验证状态到持久化字段，确保路由正确
     }
     
     return {k: v for k, v in final_state.items() 
