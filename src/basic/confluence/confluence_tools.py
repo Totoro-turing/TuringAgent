@@ -161,9 +161,8 @@ class ConfluenceWorkflowTools:
                 labels = self._generate_page_labels(doc_info)
                 cm.add_page_labels(new_page['id'], labels)
                 
-                # 7. 添加评论
-                comment = self._generate_page_comment(doc_info)
-                cm.create_page_comment(new_page['id'], comment)
+                # 7. 评论功能已禁用
+                logger.info("页面评论功能已暂时禁用")
                 
                 page_url = f"{self.confluence_url.rstrip('/')}/pages/viewpage.action?pageId={new_page['id']}"
                 

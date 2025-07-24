@@ -145,7 +145,18 @@ class ConfluenceManager:
                     current_page = self.find_child_page_by_title(current_parent_id, page_title)
 
                 if not current_page:
-                    print(f"    未找到页面: {page_title}")
+                    print(f"    ✗ 未找到页面: {page_title}")
+                    print(f"    路径断开位置: 第{i+1}级页面 '{page_title}'")
+                    
+                    # 提供诊断信息
+                    if current_parent_id:
+                        print(f"    父页面ID: {current_parent_id}")
+                        print(f"    建议: 请检查页面 '{page_title}' 是否存在于父页面下")
+                    else:
+                        print(f"    建议: 请检查根页面 '{page_title}' 是否存在于空间中")
+                    
+                    print(f"    完整预期路径: {' -> '.join(page_path)}")
+                    print(f"    已成功路径: {' -> '.join(page_path[:i])}")
                     return None
 
                 print(f"    找到页面: {current_page['title']} (ID: {current_page['id']})")
@@ -155,7 +166,12 @@ class ConfluenceManager:
             return current_page
 
         except Exception as e:
-            print(f"查找页面路径失败: {e}")
+            error_msg = f"查找页面路径失败: {str(e)}"
+            print(error_msg)
+            print(f"失败时的状态:")
+            print(f"  - 当前路径进度: {i+1}/{len(page_path)} (正在查找: '{page_title}')")
+            print(f"  - 当前父页面ID: {current_parent_id}")
+            print(f"  - 完整路径: {' -> '.join(page_path)}")
             return None
 
     def find_child_page_by_title(self, parent_id: str, title: str) -> Optional[Dict]:
@@ -170,6 +186,8 @@ class ConfluenceManager:
             页面信息字典或None
         """
         try:
+            print(f"    正在查找父页面({parent_id})下的子页面: '{title}'")
+            
             # 获取子页面列表
             children = self.confluence.get_page_child_by_type(
                 parent_id,
@@ -179,14 +197,23 @@ class ConfluenceManager:
                 expand='version,body.storage'
             )
 
-            for child in children:
-                if child['title'] == title:
+            print(f"    父页面下共有 {len(children)} 个子页面:")
+            for i, child in enumerate(children):
+                child_title = child.get('title', '未知标题')
+                print(f"      {i+1}. '{child_title}' (ID: {child.get('id', '未知ID')})")
+                
+                # 精确匹配
+                if child_title == title:
+                    print(f"    ✓ 找到匹配页面: '{child_title}'")
                     return child
 
+            print(f"    ✗ 未找到匹配的子页面: '{title}'")
             return None
 
         except Exception as e:
-            print(f"查找子页面失败: {e}")
+            error_msg = f"查找子页面失败: {str(e)}"
+            print(error_msg)
+            print(f"    查找参数: parent_id={parent_id}, title='{title}'")
             return None
 
     def get_page_children(self, page_id: str) -> List[Dict]:
@@ -218,6 +245,22 @@ class ConfluenceManager:
             print(f"获取子页面失败: {e}")
             return []
 
+    def _validate_title(self, title: str) -> tuple[bool, str]:
+        """
+        验证页面标题基本要求（系统生成的标题一般都是可靠的）
+        
+        Returns:
+            (是否有效, 错误信息或建议)
+        """
+        if not title or not title.strip():
+            return False, "标题不能为空"
+        
+        # 只检查长度限制作为安全措施
+        if len(title) > 255:
+            return False, f"标题过长 ({len(title)} 字符)，Confluence限制为255字符"
+        
+        return True, ""
+
     def create_page(self, space_key, title, content, parent_id=None):
         """
         创建新页面 - 修复版本
@@ -229,6 +272,12 @@ class ConfluenceManager:
             parent_id: 父页面 ID (可选)
         """
         try:
+            # 验证标题
+            is_valid, validation_error = self._validate_title(title)
+            if not is_valid:
+                print(f"标题验证失败: {validation_error}")
+                return None
+            
             # 检查页面是否已存在
             if parent_id:
                 # 在父页面下检查
@@ -268,14 +317,18 @@ class ConfluenceManager:
             return result
 
         except Exception as e:
-            print(f"创建页面失败: {e}")
+            error_details = f"创建页面失败: {str(e)}"
+            print(error_details)
+            print(f"页面信息 - 标题: '{title}' (长度: {len(title)}), 空间: {space_key}, 父页面: {parent_id}")
             print(f"尝试使用备用方法创建页面...")
 
             # 备用方法：直接使用 REST API
             try:
                 return self._create_page_with_rest_api(space_key, title, content, parent_id)
             except Exception as e2:
-                print(f"备用方法也失败: {e2}")
+                backup_error = f"备用方法也失败: {str(e2)}"
+                print(backup_error)
+                print(f"完整错误信息 - 主要错误: {error_details}, 备用错误: {backup_error}")
                 return None
 
     def _create_page_with_rest_api(self, space_key, title, content, parent_id=None):
@@ -310,11 +363,14 @@ class ConfluenceManager:
                 print(f"使用备用方法创建页面成功: {response['title']} (ID: {response['id']})")
                 return response
             else:
-                print(f"备用方法创建页面失败")
+                print(f"备用方法创建页面失败 - 响应: {response}")
+                if response and 'message' in response:
+                    print(f"Confluence API错误信息: {response['message']}")
                 return None
 
         except Exception as e:
-            print(f"备用方法执行失败: {e}")
+            print(f"备用方法执行失败: {str(e)}")
+            print(f"请求数据: space={space_key}, title='{title}' (长度: {len(title)}), parent_id={parent_id}")
             return None
 
     def update_page(self, page_id, title, content, version_number=None):
@@ -600,22 +656,17 @@ class ConfluenceManager:
 
     def create_page_comment(self, page_id: str, comment: str) -> Optional[Dict]:
         """
-        为页面添加评论
+        为页面添加评论 - 已禁用
 
         Args:
             page_id: 页面ID
             comment: 评论内容
 
         Returns:
-            评论对象或None
+            None (功能已禁用)
         """
-        try:
-            result = self.confluence.create_page_comment(page_id, comment)
-            print(f"评论添加成功")
-            return result
-        except Exception as e:
-            print(f"添加评论失败: {e}")
-            return None
+        print(f"页面评论功能已暂时禁用 - 页面ID: {page_id}")
+        return None
 
 
 def create_finance_model_pages():
@@ -717,13 +768,10 @@ def create_finance_model_pages():
         print(f"  页面标题: {new_page['title']}")
         print(f"  父页面: {parent_page['title']}")
 
-        # 5. 添加标签和评论
-        print(f"\n步骤 5: 添加标签和评论")
+        # 5. 添加标签（评论功能已禁用）
+        print(f"\n步骤 5: 添加标签")
         cm.add_page_labels(new_page['id'], ['财务模型', 'cam_fi', 'PNL', 'Audit Trail', 'EDW'])
-        cm.create_page_comment(
-            new_page['id'],
-            f"数据模型页面已在 '{' -> '.join(PAGE_PATH)}' 下创建完成。请相关审核人员(@Daisy Shi, @Serena XQ7 Sun, @Xianmei XM2 Chang, @Tommy ZC1 Tong)进行审核确认。"
-        )
+        print("页面评论功能已暂时禁用")
 
         print(f"\n" + "=" * 80)
         print("页面创建完成!")
