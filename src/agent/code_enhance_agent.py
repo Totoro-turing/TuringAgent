@@ -2,8 +2,8 @@ import asyncio
 import re
 import logging
 from typing import Dict, Any, List, Optional
-from langchain_core.tools import BaseTool
-from langchain_core.messages import HumanMessage
+from langchain.tools import BaseTool
+from langchain.schema.messages import HumanMessage
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import BaseModel, Field

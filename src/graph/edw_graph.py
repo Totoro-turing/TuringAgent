@@ -1,3 +1,5 @@
+from src.graph.validation_nodes import create_validation_subgraph
+from src.cache import init_cache_manager
 import time
 
 from src.agent.edw_agents import (
@@ -9,13 +11,15 @@ from src.agent.edw_agents import (
     get_shared_parser,
     get_shared_checkpointer
 )
+# 适配器已移除，直接使用子图
 from src.models.edw_models import FieldDefinition, ModelEnhanceRequest
 from src.cache import get_cache_manager
 from src.config import get_config_manager
 from langchain.prompts import PromptTemplate
 from langgraph.graph import StateGraph, START, END
 from langgraph.config import get_stream_writer
-from langchain_core.messages import AnyMessage, HumanMessage, AIMessage
+from langgraph.types import Command
+from langchain.schema.messages import AnyMessage, HumanMessage, AIMessage
 from typing import List, TypedDict, Annotated, Optional
 from operator import add
 from dotenv import load_dotenv
@@ -42,7 +46,6 @@ logging.basicConfig(level=log_level)
 logger = logging.getLogger(__name__)
 
 # 初始化缓存管理器（使用配置文件中的设置）
-from src.cache import init_cache_manager
 cache_config = config_manager.get_cache_config()
 if cache_config.enabled:
     cache_manager = init_cache_manager(
@@ -53,7 +56,6 @@ if cache_config.enabled:
 else:
     cache_manager = None
     logger.info("缓存已禁用")
-
 
 
 class SessionManager:
@@ -134,7 +136,7 @@ async def _fetch_table_fields_from_db(table_name: str) -> dict:
                         parts = line.split('\t')
                     else:
                         parts = line.split()
-                    
+
                     if len(parts) >= 2:
                         field_name = parts[0].strip()
                         field_type = parts[1].strip()
@@ -251,7 +253,7 @@ async def validate_fields_against_base_tables(fields: list, base_tables: list, s
         for table_name, fields_list in validation_result["base_tables_info"].items():
             if not fields_list:  # 空列表表示查询失败
                 failed_tables.append(table_name)
-        
+
         if failed_tables:
             # 如果有表查询失败，返回服务错误
             error_msg = f"无法获取底表字段信息，MCP服务可能存在问题。失败的表：{', '.join(failed_tables)}\n\n请检查数据服务状态，稍后再试。"
@@ -392,6 +394,7 @@ valid_agent = get_validation_agent()
 _global_code_enhancement_agent = None
 _global_enhancement_tools = None
 
+
 async def _get_global_code_enhancement_agent():
     """获取全局的代码增强智能体（懒加载）"""
     global _global_code_enhancement_agent, _global_enhancement_tools
@@ -482,7 +485,7 @@ class EDWState(TypedDict):
     # 会话状态
     session_state: Optional[str]  # 当前会话状态
     error_message: Optional[str]  # 错误信息
-    
+    failed_validation_node: Optional[str]  # 错误节点
     # 处理状态字段
     validation_status: Optional[str]  # 验证状态：incomplete_info, completed, processing
 
@@ -538,7 +541,7 @@ def chat_node(state: EDWState):
         writer({"node": ">>> chat"})
     except RuntimeError:
         # 如果不在LangGraph执行上下文中，创建一个空的writer
-        writer = lambda x: None
+        def writer(x): return None
     try:
         # 使用配置管理器 - 聊天智能体独立memory
         config = SessionManager.get_config(state.get("user_id", ""), "chat")
@@ -661,7 +664,8 @@ def search_table_cd(table_name: str) -> dict:
 
 
 # 模型增强前针对数据进行校验验证
-async def edw_model_enhance_data_validation_node(state: EDWState):
+# 注意：此函数已被重构为子图架构，见 validation_nodes.py
+async def edw_model_enhance_data_validation_node_old(state: EDWState):
     """模型增强数据验证节点：验证用户输入信息的完整性"""
     print(">>> edw_model_enhance_data_validation Node")
     writer = get_stream_writer()
@@ -715,9 +719,9 @@ async def edw_model_enhance_data_validation_node(state: EDWState):
                     error_msg = f"模型名称格式不正确：{name_error}\n\n请使用标准的英文格式，例如：\n- Finance Invoice Header\n- Customer Order Detail\n- Inventory Management System"
                     writer({"error": error_msg})
                     writer({"content": error_msg})
-                    
+
                     # 不再需要调用 valid_agent.invoke()，因为错误信息已保存到状态中
-                    
+
                     return {
                         "validation_status": "incomplete_info",
                         "error_message": error_msg,
@@ -772,9 +776,9 @@ async def edw_model_enhance_data_validation_node(state: EDWState):
                     error_msg = f"未找到表 {table_name} 的源代码: {code_info.get('message', '未知错误')}\n请确认表名是否正确。"
                     writer({"error": error_msg})
                     writer({"content": error_msg})
-                    
+
                     # 不再需要调用 valid_agent.invoke()，因为错误信息已保存到状态中
-                    
+
                     return {
                         "validation_status": "incomplete_info",  # 标记为信息不完整
                         "error_message": error_msg,
@@ -929,9 +933,9 @@ async def edw_model_enhance_data_validation_node(state: EDWState):
             logger.error(f"解析错误: {str(parse_error)}. 原始响应: {validation_result}")
             writer({"error": error_msg})
             writer({"content": error_msg})
-            
+
             # 不再需要调用 valid_agent.invoke()，因为错误信息已保存到状态中
-            
+
             return {
                 "validation_status": "incomplete_info",  # 标记为信息不完整
                 "error_message": error_msg,
@@ -950,66 +954,9 @@ async def edw_model_enhance_data_validation_node(state: EDWState):
             "messages": [HumanMessage(error_msg)]
         }
 
-
-# 同步包装器函数，处理异步数据验证节点
-def edw_model_enhance_data_validation_node_sync(state: EDWState):
-    """模型增强数据验证节点的同步包装器"""
-    print(">>> edw_model_enhance_data_validation Node (sync wrapper)")
-
-    # 在同步上下文中运行异步函数
-    import asyncio
-
-    try:
-        # 获取或创建事件循环
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # 如果循环已在运行，创建一个新任务
-                import concurrent.futures
-                import threading
-
-                result = None
-                exception = None
-
-                def run_async():
-                    nonlocal result, exception
-                    try:
-                        new_loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(new_loop)
-                        result = new_loop.run_until_complete(edw_model_enhance_data_validation_node(state))
-                        new_loop.close()
-                    except Exception as e:
-                        exception = e
-
-                thread = threading.Thread(target=run_async)
-                thread.start()
-                thread.join()
-
-                if exception:
-                    raise exception
-                return result
-            else:
-                # 循环未运行，直接使用
-                return loop.run_until_complete(edw_model_enhance_data_validation_node(state))
-        except RuntimeError:
-            # 没有事件循环，创建新的
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                return loop.run_until_complete(edw_model_enhance_data_validation_node(state))
-            finally:
-                loop.close()
-
-    except Exception as e:
-        logger.error(f"异步节点执行失败: {e}")
-        writer = get_stream_writer()
-        writer({"error": f"数据验证失败: {str(e)}"})
-        return {
-            "error_message": f"数据验证失败: {str(e)}",
-            "user_id": state.get("user_id", "")
-        }
-
 # 新增模型前主要针对数据进行校验验证
+
+
 def edw_model_add_data_validation_node(state: EDWState):
     """模型新增数据验证节点"""
     print(">>> edw_model_add_data_validation Node")
@@ -1240,7 +1187,7 @@ def edw_model_enhance_node(state: EDWState):
         if enhancement_result.get("success"):
             writer({"status": "模型增强完成"})
             writer({"result": "代码增强成功"})
-            
+
             # 根据增强类型添加提示
             if enhancement_type == "modify_logic":
                 writer({"info": "检测到逻辑修改类型，将跳过ADB更新、Confluence文档和邮件发送流程"})
@@ -1394,33 +1341,33 @@ EDW_EMAIL_HTML_TEMPLATE = """
             <h1 style="margin: 0; font-size: 24px;">🤖 EDW Model Review Request [AI Generated]</h1>
             <p style="margin: 5px 0 0 0; opacity: 0.9;">Enterprise Data Warehouse</p>
         </div>
-        
+
         <div class="content">
             <div class="greeting">{greeting}</div>
-            
+
             <!-- AI生成提示框 -->
             <div style="background: #f0f8ff; border: 2px solid #4a90e2; border-radius: 8px; padding: 15px; margin: 20px 0; text-align: center;">
                 <p style="margin: 0; color: #2c5aa0; font-weight: 600; font-size: 14px;">
                     🤖 本邮件内容由EDW智能助手自动生成 | AI Generated Content
                 </p>
             </div>
-            
+
             <div class="model-name">
                 {model_full_name}
             </div>
-            
+
             <div class="fields-section">
                 <div class="fields-title">新增字段如下：</div>
                 <table class="fields-table">
                     {fields_html}
                 </table>
             </div>
-            
+
             <div class="thank-you">请帮忙review 谢谢</div>
-            
+
             {review_link_html}
         </div>
-        
+
         <div class="footer">
             <p style="margin: 0; color: #4a90e2; font-weight: 600;">🤖 This email was automatically generated by EDW Intelligent Assistant</p>
             <p style="margin: 5px 0 0 0; color: #4a90e2; font-size: 13px;">
@@ -1443,7 +1390,7 @@ EDW_EMAIL_GREETING_MAP = {
 
 
 def _build_html_email_template(table_name: str, model_name: str, schema: str,
-                              fields: list, confluence_page_url: str, confluence_title: str) -> str:
+                               fields: list, confluence_page_url: str, confluence_title: str) -> str:
     """构建友好的HTML邮件模板"""
 
     # 确定问候语
@@ -1478,12 +1425,12 @@ def _build_html_email_template(table_name: str, model_name: str, schema: str,
     if confluence_page_url:
         review_link_html = f"""
             <div style="margin: 25px 0;">
-                <a href="{confluence_page_url}" 
-                   style="background: linear-gradient(135deg, #0078d4, #106ebe); 
-                          color: white; 
-                          padding: 12px 24px; 
-                          text-decoration: none; 
-                          border-radius: 6px; 
+                <a href="{confluence_page_url}"
+                   style="background: linear-gradient(135deg, #0078d4, #106ebe);
+                          color: white;
+                          padding: 12px 24px;
+                          text-decoration: none;
+                          border-radius: 6px;
                           display: inline-block;
                           font-weight: 600;
                           box-shadow: 0 2px 8px rgba(0,120,212,0.3);
@@ -1659,9 +1606,9 @@ def edw_email_node(state: EDWState):
 
 
 async def _create_confluence_documentation(table_name: str, model_name: str,
-                                        enhanced_code: str, fields: list,
-                                        alter_table_sql: str, writer, user_id: str, 
-                                        enhancement_type: str = "add_field", base_tables: list = None) -> dict:
+                                           enhanced_code: str, fields: list,
+                                           alter_table_sql: str, writer, user_id: str,
+                                           enhancement_type: str = "add_field", base_tables: list = None) -> dict:
     """异步创建Confluence文档的核心函数"""
     try:
         from src.basic.confluence.confluence_tools import ConfluenceWorkflowTools
@@ -1707,35 +1654,35 @@ async def _create_confluence_documentation(table_name: str, model_name: str,
 
         # 根据enhancement_type确定操作类型
         operation_type = "Enhance" if enhancement_type in ["add_field", "modify_logic", "optimize_query"] else "New"
-        
+
         # 根据schema确定业务域
         domain_map = {
             "dwd_fi": "Finance",
-            "cam_fi": "Finance", 
+            "cam_fi": "Finance",
             "dwd_hr": "HR",
             "cam_hr": "HR"
         }
         domain = domain_map.get(schema.lower(), "Data")
-        
+
         # 构建自定义的model_config（按用户要求的格式）
         final_model_name = model_name or table.replace('_', ' ').title()
-        
+
         # 构建标题，避免特殊字符和长度问题
         base_title = f"{current_date}: {domain} Data Model Review - {final_model_name} {operation_type}"
         ai_suffix = " [AI Generated]"
-        
+
         # 确保标题不超过Confluence限制（通常是255字符，保留一些余量）
         max_length = 200
         if len(base_title) + len(ai_suffix) > max_length:
             # 截断model_name部分
             available_for_name = max_length - len(f"{current_date}: {domain} Data Model Review -  {operation_type}") - len(ai_suffix)
             if available_for_name > 10:
-                final_model_name = final_model_name[:available_for_name-3] + "..."
+                final_model_name = final_model_name[:available_for_name - 3] + "..."
                 base_title = f"{current_date}: {domain} Data Model Review - {final_model_name} {operation_type}"
-        
+
         final_title = base_title + ai_suffix
         logger.info(f"创建Confluence页面标题: {final_title} (长度: {len(final_title)})")
-        
+
         custom_model_config = {
             "title": final_title,
             "requirement_description": f"为 {table_name} 增加了 {len(fields)} 个新字段以支持业务需求",
@@ -1766,7 +1713,7 @@ async def _create_confluence_documentation(table_name: str, model_name: str,
                     attribute_name = getattr(field, 'attribute_name', getattr(field, 'physical_name', ''))
                     column_name = getattr(field, 'physical_name', '')
                     column_type = getattr(field, 'data_type', 'STRING')
-                
+
                 field_info = {
                     "schema": schema,
                     "mode_name": model_name or f"{table.replace('_', ' ').title()}",
@@ -2166,21 +2113,66 @@ def model_routing_fun(state: EDWState):
         return END
 
 
-def validation_routing_fun(state: EDWState):
-    """数据验证后的路由函数：决定继续处理还是直接结束"""
-    print(">>> validation_routing_fun")
-    print(f"State type: {state.get('type')}")
-    print(f"Validation status: {state.get('validation_status')}")
+def validation_check_node(state: EDWState):
+    """验证检查节点：处理验证状态并实施中断"""
+    from langgraph.types import interrupt, Command
+    
+    print(">>> validation_check Node")
+    writer = get_stream_writer()
+    writer({"node": ">>> validation_check"})
+    
+    validation_status = state.get("validation_status")
+    user_id = state.get("user_id", "")
+    
+    # 如果验证信息不完整，触发中断
+    if validation_status == "incomplete_info":
+        error_message = state.get("error_message", "需要补充信息")
+        failed_node = state.get("failed_validation_node", "unknown")
+        
+        logger.info(f"验证失败于节点: {failed_node}, 准备中断等待用户输入")
+        writer({"status": f"验证失败，需要补充信息"})
+        writer({"content": error_message})
+        
+        # 🔥 在节点中中断，等待用户补充信息
+        user_input = interrupt({
+            "prompt": error_message,
+            "failed_node": failed_node,
+            "validation_status": "waiting_for_input"
+        })
+        
+        # 用户输入作为新消息添加到状态中
+        return {
+            "messages": [HumanMessage(content=user_input)],
+            "validation_status": "retry",  # 标记需要重试
+            "user_id": user_id
+        }
+    
+    # 验证通过，可以继续
+    elif validation_status == "completed":
+        writer({"status": "验证通过，继续处理"})
+        
+        return {
+            "validation_status": "proceed",  # 标记可以继续
+            "user_id": user_id
+        }
+    
+    # 其他情况
+    return {"user_id": user_id}
 
-    # 检查验证状态而非 type
-    if state.get("validation_status") == "incomplete_info":
-        logger.info("信息不完整，直接结束流程")
-        return END
-    # 基于原始用户意图继续流程
-    if "model_enhance" in state.get("type"):
+
+def route_after_validation_check(state: EDWState):
+    """验证检查后的路由函数"""
+    validation_status = state.get("validation_status")
+    
+    if validation_status == "proceed":
+        # 验证通过，继续到增强节点
         return "model_enhance_node"
-    # 默认结束
-    return END
+    elif validation_status == "retry":
+        # 需要重试，回到验证子图
+        return "model_enhance_data_validation_node"
+    else:
+        # 默认结束
+        return END
 
 
 def enhancement_routing_fun(state: EDWState):
@@ -2188,20 +2180,24 @@ def enhancement_routing_fun(state: EDWState):
     print(">>> enhancement_routing_fun")
     enhancement_type = state.get("enhancement_type", "")
     print(f"Enhancement type: {enhancement_type}")
-    
+
     # 如果是仅修改逻辑，直接结束
     if enhancement_type == "modify_logic":
         logger.info("检测到仅修改逻辑，跳过ADB更新等后续流程")
         return END
-    
+
     # 其他类型继续走完整流程
     logger.info(f"增强类型 {enhancement_type}，继续执行完整流程")
     return "adb_update_node"
 
 
+# 创建验证子图实例
+validation_subgraph = create_validation_subgraph()
+
 model_dev_graph = (
     StateGraph(EDWState)
-    .add_node("model_enhance_data_validation_node", edw_model_enhance_data_validation_node_sync)
+    .add_node("model_enhance_data_validation_node", validation_subgraph)
+    .add_node("validation_check_node", validation_check_node)  # 新增验证检查节点
     .add_node("model_add_data_validation_node", edw_model_add_data_validation_node)
     .add_node("model_enhance_node", edw_model_enhance_node)
     .add_node("model_addition_node", edw_model_addition_node)
@@ -2209,8 +2205,14 @@ model_dev_graph = (
     .add_node("email_node", edw_email_node)
     .add_node("confluence_node", edw_confluence_node)
     .add_conditional_edges(START, model_routing_fun, ["model_enhance_data_validation_node", "model_add_data_validation_node"])
-    # 添加数据验证后的条件路由
-    .add_conditional_edges("model_enhance_data_validation_node", validation_routing_fun, ["model_enhance_node", END])
+    # 验证子图完成后进入检查节点
+    .add_edge("model_enhance_data_validation_node", "validation_check_node")
+    # 从检查节点出来后的条件路由
+    .add_conditional_edges("validation_check_node", route_after_validation_check, [
+        "model_enhance_node",               # 验证通过，继续
+        "model_enhance_data_validation_node", # 需要重试
+        END                                  # 其他情况结束
+    ])
     .add_edge("model_add_data_validation_node", "model_addition_node")
     # 修改为条件路由：根据增强类型决定是否需要走后续流程
     .add_conditional_edges("model_enhance_node", enhancement_routing_fun, ["adb_update_node", END])
@@ -2220,7 +2222,9 @@ model_dev_graph = (
     .add_edge("email_node", END)
 )
 
-model_dev = model_dev_graph.compile()
+model_dev = model_dev_graph.compile(
+    checkpointer=get_shared_checkpointer()  # 支持子图中断-恢复机制
+)
 
 
 def routing_fun(state: EDWState):
@@ -2228,7 +2232,6 @@ def routing_fun(state: EDWState):
     if 'model' in state["type"]:
         return "model_node"
     return "chat_node"
-
 
 
 # 一级导航图
@@ -2245,7 +2248,9 @@ guid_graph = (
     .add_edge("chat_node", END)
 )
 
-guid = guid_graph.compile()
+guid = guid_graph.compile(
+    checkpointer=get_shared_checkpointer()  # 支持跨图的中断-恢复机制
+)
 
 
 def create_message_from_input(user_input: str) -> HumanMessage:
@@ -2253,43 +2258,7 @@ def create_message_from_input(user_input: str) -> HumanMessage:
     return HumanMessage(content=user_input)
 
 
-# 全局用户状态缓存
-user_persistent_states = {}
-
-def extract_persistent_fields(final_state: dict) -> dict:
-    """从最终状态中提取需要持久化的字段"""
-    persistent_fields = {
-        "type", "user_id", "table_name", "source_code", 
-        "enhance_code", "model_name", "model_attribute_name",
-        "confluence_page_url", "confluence_page_id", "confluence_title",
-        "fields", "collected_info", "requirement_description", "logic_detail",
-        "enhancement_type", "validation_status"  # 添加验证状态到持久化字段，确保路由正确
-    }
-    
-    return {k: v for k, v in final_state.items() 
-            if k in persistent_fields and v is not None}
-
-def create_initial_state_with_history(user_input: str, user_id: str) -> dict:
-    """创建包含历史状态的初始状态"""
-    initial_state = {
-        "messages": [create_message_from_input(user_input)],
-        "user_id": user_id,
-    }
-    
-    # 合并历史持久化状态
-    if user_id in user_persistent_states:
-        historical_state = user_persistent_states[user_id]
-        for key, value in historical_state.items():
-            if key not in initial_state:  # 不覆盖新消息和user_id
-                initial_state[key] = value
-                
-    return initial_state
-
-def reset_user_state(user_id: str):
-    """重置用户状态"""
-    if user_id in user_persistent_states:
-        del user_persistent_states[user_id]
-        print(f"用户 {user_id} 的状态已重置")
+# 状态管理现在由LangGraph的checkpointer机制处理，移除手动状态管理逻辑
 
 
 if __name__ == "__main__":
@@ -2326,6 +2295,41 @@ if __name__ == "__main__":
         print("缓存系统已禁用")
     print(f"\n使用 '/test sse' 命令测试SSE连接")
     index = 0
+    
+    # 定义处理输出的函数，避免代码重复
+    def process_output(chunk, displayed_content, final_state_holder):
+        """处理流输出的辅助函数"""
+        if chunk:
+            for node_name, node_data in chunk.items():
+                if isinstance(node_data, dict):
+                    final_state_holder[0] = node_data
+                    # 优先处理包含messages的输出（最重要的AI响应）
+                    if "messages" in node_data and node_data["messages"]:
+                        messages = node_data["messages"]
+                        last_message = messages[-1]
+                        content = last_message.content if hasattr(last_message, 'content') else str(last_message)
+                        content_hash = hash(content)
+                        if content_hash not in displayed_content:
+                            print(f"\nAI: {content}")
+                            displayed_content.add(content_hash)
+                    # 处理直接的content输出
+                    elif "content" in node_data:
+                        content = node_data['content']
+                        content_hash = hash(content)
+                        if content_hash not in displayed_content:
+                            print(f"\nAI: {content}")
+                            displayed_content.add(content_hash)
+                    # 处理错误信息（高优先级）
+                    elif "error" in node_data:
+                        print(f"\n错误: {node_data['error']}")
+                    # 处理状态信息（中优先级）
+                    elif "status" in node_data:
+                        print(f"状态: {node_data['status']}")
+                    elif "progress" in node_data:
+                        print(f"进度: {node_data['progress']}")
+                    elif "warning" in node_data:
+                        print(f"警告: {node_data['warning']}")
+    
     while True:
         try:
             readline = input("\n用户输入: ")
@@ -2455,60 +2459,69 @@ if __name__ == "__main__":
 
             # 处理状态重置命令
             if readline.lower() == "/reset":
-                reset_user_state(user_id)
+                # 使用LangGraph checkpointer机制重置状态
+                config = SessionManager.get_config(user_id, "main")
+                try:
+                    # 清除checkpointer中的会话状态
+                    checkpointer = get_shared_checkpointer()
+                    if hasattr(checkpointer, 'alist'):
+                        # 删除该用户的所有checkpoints
+                        for checkpoint_tuple in checkpointer.alist(config):
+                            checkpointer.delete(config, checkpoint_tuple.checkpoint['id'])
+                    print(f"用户 {user_id} 的状态已重置")
+                except Exception as e:
+                    print(f"状态重置失败: {e}")
                 continue
 
             # 使用统一配置管理器 - 主会话
             config = SessionManager.get_config(user_id, "main")
 
-            # 创建包含历史状态的初始状态
-            initial_state = create_initial_state_with_history(readline, user_id)
-
+            # 创建简单的初始状态（LangGraph checkpointer会自动管理历史状态）
+            initial_state = {
+                "messages": [create_message_from_input(readline)],
+                "user_id": user_id,
+            }
 
             displayed_content = set()  # 避免重复显示相同内容
-            final_state = None  # 跟踪最终状态
-
-
-            for chunk in guid.stream(initial_state, config, stream_mode="updates"):
-                if chunk:
-                    # 统一处理所有节点的输出，不针对特定节点
-                    for node_name, node_data in chunk.items():
-                        # 更新最终状态
-                        if isinstance(node_data, dict):
-                            final_state = node_data
-                            # 优先处理包含messages的输出（最重要的AI响应）
-                            if "messages" in node_data and node_data["messages"]:
-                                messages = node_data["messages"]
-                                last_message = messages[-1]
-                                content = last_message.content if hasattr(last_message, 'content') else str(last_message)
-                                content_hash = hash(content)
-                                if content_hash not in displayed_content:
-                                    print(f"\nAI: {content}")
-                                    displayed_content.add(content_hash)
-                            # 处理直接的content输出
-                            elif "content" in node_data:
-                                content = node_data['content']
-                                content_hash = hash(content)
-                                if content_hash not in displayed_content:
-                                    print(f"\nAI: {content}")
-                                    displayed_content.add(content_hash)
-                            # 处理错误信息（高优先级）
-                            elif "error" in node_data:
-                                print(f"\n错误: {node_data['error']}")
-                            # 处理状态信息（中优先级）
-                            elif "status" in node_data:
-                                print(f"状态: {node_data['status']}")
-                            elif "progress" in node_data:
-                                print(f"进度: {node_data['progress']}")
-                            elif "warning" in node_data:
-                                print(f"警告: {node_data['warning']}")
-
-            # 执行完成后，保存持久化状态
-            if final_state:
-                persistent_state = extract_persistent_fields(final_state)
-                if persistent_state:
-                    user_persistent_states[user_id] = persistent_state
-                    logger.info(f"保存用户 {user_id} 的持久化状态: {list(persistent_state.keys())}")
+            final_state_holder = [None]  # 使用列表来跟踪最终状态（可变对象）
+            
+            # 初始执行
+            stream_input = initial_state
+            
+            # 循环处理中断，直到流程完成
+            while True:
+                # 执行图
+                for chunk in guid.stream(stream_input, config, stream_mode="updates"):
+                    process_output(chunk, displayed_content, final_state_holder)
+                
+                # 检查是否有中断
+                current_state = guid.get_state(config)
+                if current_state.next:  # 如果有待执行的节点，说明被中断了
+                    # 获取中断信息
+                    interrupts = current_state.tasks
+                    if interrupts:
+                        interrupt_found = False
+                        for task in interrupts:
+                            if task.interrupts:
+                                interrupt_info = task.interrupts[0]
+                                prompt = interrupt_info.value.get("prompt", "需要补充信息")
+                                print(f"\nAI: {prompt}")
+                                
+                                # 等待用户输入
+                                user_response = input("\n用户输入: ")
+                                
+                                # 准备恢复执行
+                                stream_input = Command(resume=user_response)
+                                interrupt_found = True
+                                break
+                        
+                        if interrupt_found:
+                            continue  # 继续循环，恢复执行
+                
+                # 没有中断或没有找到中断信息，结束循环
+                break
+            
+            # 状态管理现在由LangGraph checkpointer自动处理
 
         except KeyboardInterrupt:
             print("\n用户中断操作")
