@@ -24,22 +24,13 @@ parser = get_shared_parser()
 
 def parse_user_input_node(state: ValidationState) -> dict:
     """节点1: 解析用户输入，提取关键信息 - 支持智能路由"""
-    print(">>> Parse User Input Node (Smart Routing)")
-    writer = get_stream_writer()
     
     # 检查是否是从中断恢复
     failed_node = state.get("failed_validation_node")
     retry_count = state.get("retry_count", 0)
     is_resume = failed_node is not None
     
-    if is_resume:
-        writer({
-            "node": ">>> parse_user_input", 
-            "status": f"从中断恢复执行 (第{retry_count + 1}次重试)",
-            "previous_failed_node": failed_node
-        })
-    else:
-        writer({"node": ">>> parse_user_input", "status": "首次解析用户需求..."})
+    # 中断恢复检测逻辑保留，但移除调试输出
     
     # 导入需要的依赖
     from src.graph.edw_graph import SessionManager
@@ -82,13 +73,11 @@ def parse_user_input_node(state: ValidationState) -> dict:
         validation_result = response["messages"][-1].content
         
         logger.info(f"LLM原始响应: {validation_result}")
-        writer({"llm_response": validation_result})
         
         # 解析响应
         try:
             parsed_request = parser.parse(validation_result)
             parsed_data = parsed_request.model_dump()
-            writer({"parsed_data": parsed_data})
             
             result = {
                 "validation_status": "processing",
@@ -108,7 +97,6 @@ def parse_user_input_node(state: ValidationState) -> dict:
                 result["smart_route_target"] = failed_node
                 result["is_resume_execution"] = True
                 result["retry_count"] = retry_count + 1
-                writer({"smart_routing": f"将直接跳转到失败节点: {failed_node}"})
                 
                 # 保留一些有用的缓存信息（如果存在）
                 if state.get("source_code"):
@@ -125,7 +113,6 @@ def parse_user_input_node(state: ValidationState) -> dict:
         except Exception as parse_error:
             error_msg = "信息格式解析失败。请使用更清晰的格式描述需求。"
             logger.error(f"解析错误: {str(parse_error)}. 原始响应: {validation_result}")
-            writer({"error": error_msg})
             
             return {
                 "validation_status": "incomplete_info",
@@ -137,7 +124,6 @@ def parse_user_input_node(state: ValidationState) -> dict:
     except Exception as e:
         error_msg = f"解析用户输入失败: {str(e)}"
         logger.error(error_msg)
-        writer({"error": error_msg})
         
         return {
             "validation_status": "incomplete_info",
@@ -149,42 +135,90 @@ def parse_user_input_node(state: ValidationState) -> dict:
 
 def validate_model_name_node(state: ValidationState) -> dict:
     """节点2: 验证英文模型名称格式"""
-    print(">>> Validate Model Name Node")
-    writer = get_stream_writer()
-    writer({"node": ">>> validate_model_name"})
     
     # 导入验证函数
     from src.graph.edw_graph import _validate_english_model_name
     
     model_attribute_name = state.get("model_attribute_name")
+    table_name = state.get("table_name", "").strip()
+    model_name_source = None
     
-    # 如果没有提供模型名称，跳过验证
+    # 如果没有提供模型名称但有表名，尝试从建表语句中提取
+    if not model_attribute_name and table_name:
+        try:
+            import asyncio
+            import re
+            from src.mcp.mcp_client import execute_sql_via_mcp
+            
+            # 执行 SHOW CREATE TABLE 获取建表语句
+            show_create_sql = f"SHOW CREATE TABLE {table_name}"
+            
+            # 使用 asyncio 执行异步函数
+            create_table_result = asyncio.run(execute_sql_via_mcp(show_create_sql))
+            
+            if create_table_result and "错误" not in create_table_result:
+                # 使用正则表达式提取表级 COMMENT
+                # 匹配模式: COMMENT 'xxx' 在 USING 或 TBLPROPERTIES 之前
+                comment_pattern = r"COMMENT\s+['\"]([^'\"]+)['\"](?:\s+USING|\s+TBLPROPERTIES)"
+                match = re.search(comment_pattern, create_table_result, re.IGNORECASE | re.DOTALL)
+                
+                if match:
+                    # 从建表语句中提取模型名称
+                    model_attribute_name = match.group(1).strip()
+                    model_name_source = "table_comment"
+                    logger.info(f"从建表语句中提取到模型名称: {model_attribute_name}")
+                
+        except Exception as e:
+            logger.error(f"尝试从建表语句提取模型名称时出错: {e}")
+    
+    # 如果没有模型名称（既没有用户提供，也没有从表中提取到）
     if not model_attribute_name:
-        return {"validation_status": "processing"}
+        # 如果有表名但提取失败，提示用户
+        if table_name:
+            error_msg = f"未能从表 {table_name} 的建表语句中自动提取模型名称。\n\n请手动提供模型的英文名称，例如：\n- Finance Invoice Header\n- Customer Order Detail\n- Inventory Management System"
+            
+            return {
+                "validation_status": "incomplete_info",
+                "failed_validation_node": "validate_name",
+                "error_message": error_msg,
+                "messages": [HumanMessage(error_msg)]
+            }
+        else:
+            # 没有表名，跳过验证
+            return {"validation_status": "processing"}
     
-    # 验证英文模型名称格式
+    # 统一验证模型名称格式（无论是用户提供的还是从表中提取的）
     is_valid_name, name_error = _validate_english_model_name(model_attribute_name)
     
     if not is_valid_name:
-        error_msg = f"模型名称格式不正确：{name_error}\n\n请使用标准的英文格式，例如：\n- Finance Invoice Header\n- Customer Order Detail\n- Inventory Management System"
-        writer({"error": error_msg})
-        writer({"content": error_msg})
+        # 根据来源构建不同的错误消息
+        if model_name_source == "table_comment":
+            error_msg = f"从建表语句中提取的模型名称格式不正确：{name_error}\n原始值: '{model_attribute_name}'\n\n请手动提供符合标准的英文模型名称，例如：\n- Finance Invoice Header\n- Customer Order Detail\n- Inventory Management System"
+        else:
+            error_msg = f"模型名称格式不正确：{name_error}\n\n请使用标准的英文格式，例如：\n- Finance Invoice Header\n- Customer Order Detail\n- Inventory Management System"
         
         return {
             "validation_status": "incomplete_info",
-            "failed_validation_node": "validate_name",  # 🔥 记录失败节点
+            "failed_validation_node": "validate_name",
             "error_message": error_msg,
             "messages": [HumanMessage(error_msg)]
         }
     
-    return {"validation_status": "processing"}
+    # 验证通过，返回成功状态
+    result = {"validation_status": "processing"}
+    
+    # 如果是从表中提取的，更新状态
+    if model_name_source == "table_comment":
+        result.update({
+            "model_attribute_name": model_attribute_name,
+            "model_name_source": model_name_source
+        })
+    
+    return result
 
 
 def validate_completeness_node(state: ValidationState) -> dict:
     """节点3: 验证信息完整性"""
-    print(">>> Validate Completeness Node")
-    writer = get_stream_writer()
-    writer({"node": ">>> validate_completeness"})
     
     try:
         # 从 state 重新构建 ModelEnhanceRequest 对象进行验证
@@ -226,10 +260,6 @@ def validate_completeness_node(state: ValidationState) -> dict:
             
             complete_message = f"为了帮您完成模型增强，我需要以下信息：\n{missing_info_text}\n\n请补充完整信息后重新提交。"
             
-            writer({"error": complete_message})
-            writer({"missing_fields": missing_fields})
-            writer({"content": complete_message})
-            
             return {
                 "validation_status": "incomplete_info",
                 "failed_validation_node": "validate_completeness",  # 🔥 记录失败节点
@@ -243,7 +273,6 @@ def validate_completeness_node(state: ValidationState) -> dict:
     except Exception as e:
         error_msg = f"验证信息完整性失败: {str(e)}"
         logger.error(error_msg)
-        writer({"error": error_msg})
         
         return {
             "validation_status": "incomplete_info",
@@ -255,9 +284,6 @@ def validate_completeness_node(state: ValidationState) -> dict:
 
 def search_table_code_node(state: ValidationState) -> dict:
     """节点4: 查询表的源代码"""
-    print(">>> Search Table Code Node")
-    writer = get_stream_writer()
-    writer({"node": ">>> search_table_code"})
     
     # 导入需要的函数
     from src.graph.edw_graph import search_table_cd, convert_to_adb_path, extract_tables_from_code
@@ -273,7 +299,7 @@ def search_table_code_node(state: ValidationState) -> dict:
             "messages": [HumanMessage(error_msg)]
         }
     
-    writer({"status": f"正在查询表 {table_name} 的源代码..."})
+    # 查询表的源代码
     
     try:
         code_info = search_table_cd(table_name)
@@ -281,8 +307,6 @@ def search_table_code_node(state: ValidationState) -> dict:
         
         if code_info.get("status") == "error":
             error_msg = f"未找到表 {table_name} 的源代码: {code_info.get('message', '未知错误')}\n请确认表名是否正确。"
-            writer({"error": error_msg})
-            writer({"content": error_msg})
             
             return {
                 "validation_status": "incomplete_info",
@@ -291,8 +315,7 @@ def search_table_code_node(state: ValidationState) -> dict:
                 "messages": [HumanMessage(error_msg)]
             }
         
-        writer({"status": "信息收集完成，开始验证字段与底表的关联性"})
-        writer({"table_found": True, "table_name": table_name})
+        # 信息收集完成
         
         # 转换为ADB路径
         code_path = code_info.get("file_path", "")
@@ -319,7 +342,6 @@ def search_table_code_node(state: ValidationState) -> dict:
     except Exception as e:
         error_msg = f"查询表代码失败: {str(e)}"
         logger.error(error_msg)
-        writer({"error": error_msg})
         
         return {
             "validation_status": "incomplete_info",
@@ -331,9 +353,6 @@ def search_table_code_node(state: ValidationState) -> dict:
 
 async def validate_field_base_tables_node(state: ValidationState) -> dict:
     """节点5: 验证字段与底表的关联性"""
-    print(">>> Validate Field Base Tables Node")
-    writer = get_stream_writer()
-    writer({"node": ">>> validate_field_base_tables"})
     
     # 导入需要的函数
     from src.graph.edw_graph import validate_fields_against_base_tables
@@ -350,7 +369,7 @@ async def validate_field_base_tables_node(state: ValidationState) -> dict:
             "session_state": "validation_completed"
         }
     
-    writer({"status": f"正在验证 {len(fields)} 个新增字段与底表的关联性..."})
+    # 验证新增字段与底表的关联性
     
     try:
         # 转换字段格式
@@ -408,9 +427,7 @@ async def validate_field_base_tables_node(state: ValidationState) -> dict:
 
 请确认字段名称是否正确，或参考建议字段进行修正。"""
             
-            writer({"error": validation_error_msg})
-            writer({"content": validation_error_msg})
-            writer({"field_validation": field_validation})
+            # 字段验证失败
             
             return {
                 "validation_status": "incomplete_info",
@@ -420,18 +437,7 @@ async def validate_field_base_tables_node(state: ValidationState) -> dict:
                 "messages": [HumanMessage(validation_error_msg)]
             }
         else:
-            writer({"status": "字段验证通过"})
-            
-            # 添加缓存性能信息
-            if "cache_performance" in field_validation:
-                cache_perf = field_validation["cache_performance"]
-                writer({"cache_performance": f"查询性能: 耗时{cache_perf['duration_seconds']}秒, 缓存命中率: {cache_perf['overall_hit_rate']}"})
-            
-            if field_validation["suggestions"]:
-                suggestions_msg = "字段建议：\n"
-                for field_name, suggestions in field_validation["suggestions"].items():
-                    suggestions_msg += f"- {field_name}: 发现相似字段 {suggestions[0]['field_name']} (相似度: {suggestions[0]['similarity']:.2f})\n"
-                writer({"field_suggestions": suggestions_msg})
+            # 字段验证通过
             
             return {
                 "validation_status": "completed",
@@ -442,7 +448,6 @@ async def validate_field_base_tables_node(state: ValidationState) -> dict:
     except Exception as e:
         error_msg = f"验证字段与底表关联性失败: {str(e)}"
         logger.error(error_msg)
-        writer({"error": error_msg})
         
         return {
             "validation_status": "incomplete_info",
@@ -512,7 +517,7 @@ def smart_route_after_parse(state: Dict[str, Any]) -> str:
     # 🎯 智能路由：如果是恢复执行，直接跳转到失败的节点
     if state.get("is_resume_execution") and state.get("smart_route_target"):
         target_node = state.get("smart_route_target")
-        print(f"🎯 智能路由到失败节点: {target_node}")
+        logger.debug(f"智能路由到失败节点: {target_node}")
         
         # 根据失败节点映射到对应的验证节点
         node_mapping = {

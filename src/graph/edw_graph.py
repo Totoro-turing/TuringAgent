@@ -25,7 +25,7 @@ from operator import add
 from dotenv import load_dotenv
 from langgraph.prebuilt import create_react_agent
 from src.basic.filesystem.file_operate import FileSystemTool
-from src.agent.code_enhance_agent import CodeEnhanceAgent
+from src.basic.github import GitHubTool
 import hashlib
 import uuid
 import logging
@@ -492,9 +492,6 @@ class EDWState(TypedDict):
 
 def navigate_node(state: EDWState):
     """导航节点：负责用户输入的初始分类"""
-    print(">>> navigate Node")
-    writer = get_stream_writer()
-    writer({"node": ">>> navigate"})
 
     # 如果已经有type，直接返回
     if 'type' in state and state['type'] != '' and state['type'] != 'other':
@@ -529,19 +526,11 @@ def navigate_node(state: EDWState):
     except Exception as e:
         error_msg = f"导航节点处理失败: {str(e)}"
         logger.error(error_msg)
-        writer({"error": error_msg})
         return {"type": "error", "user_id": state.get("user_id", ""), "error_message": error_msg}
 
 
 def chat_node(state: EDWState):
     """聊天节点：处理普通对话"""
-    print(">>> chat Node")
-    try:
-        writer = get_stream_writer()
-        writer({"node": ">>> chat"})
-    except RuntimeError:
-        # 如果不在LangGraph执行上下文中，创建一个空的writer
-        def writer(x): return None
     try:
         # 使用配置管理器 - 聊天智能体独立memory
         config = SessionManager.get_config(state.get("user_id", ""), "chat")
@@ -558,16 +547,14 @@ def chat_node(state: EDWState):
             config
         )
 
-        # 输出响应内容到流
+        # 获取响应内容
         response_content = response["messages"][-1].content
-        writer({"content": response_content})
         logger.info(f"Chat response: {response_content[:100]}...")
 
         return {"messages": response["messages"]}
     except Exception as e:
         error_msg = f"聊天节点处理失败: {str(e)}"
         logger.error(error_msg)
-        writer({"error": error_msg})
         return {"messages": [HumanMessage("抱歉，我遇到了一些问题，请稍后再试。")], "error_message": error_msg}
 
 # 主要分配模型增强等相关工作
@@ -575,10 +562,6 @@ def chat_node(state: EDWState):
 
 def edw_model_node(state: EDWState):
     """模型节点：进一步分类模型相关任务"""
-    print(">>> edw_model Node")
-    print(f">>> {state['messages']}")
-    writer = get_stream_writer()
-    writer({"node": ">>> edw_model"})
 
     # 如果已经识别到具体的意图类型，直接返回
     if state.get("type") in ["model_enhance", "model_add", "switch_model"]:
@@ -616,22 +599,45 @@ def edw_model_node(state: EDWState):
     except Exception as e:
         error_msg = f"模型节点分类失败: {str(e)}"
         logger.error(error_msg)
-        writer({"error": error_msg})
         return {"type": "error", "user_id": state.get("user_id", ""), "error_message": error_msg}
 
 
 def search_table_cd(table_name: str) -> dict:
     """
-    查询某个表的源代码
+    查询某个表的源代码（支持GitHub和本地搜索切换）
     :param table_name: 必要参数，具体表名比如dwd_fi.fi_invoice_item
     :return: 返回结果字典，包含状态和源代码信息
              成功时: {"status": "success", "code": "...", "table_name": "...", ...}
              失败时: {"status": "error", "message": "错误信息"}
     """
+    # 通过环境变量控制使用哪种搜索方式
+    use_github = os.getenv("USE_GITHUB_SEARCH", "true").lower() == "true"
+    
+    if use_github:
+        try:
+            # 使用GitHub工具进行搜索
+            github_tool = GitHubTool()
+            return github_tool.search_table_code(table_name)
+        except Exception as e:
+            logger.error(f"GitHub搜索失败: {e}")
+            # 如果配置了回退到本地搜索
+            if os.getenv("FALLBACK_TO_LOCAL", "false").lower() == "true":
+                logger.info("回退到本地文件搜索")
+                return _search_table_cd_local(table_name)
+            return {"status": "error", "message": f"GitHub搜索失败: {str(e)}"}
+    else:
+        # 使用本地文件系统搜索
+        return _search_table_cd_local(table_name)
+
+
+def _search_table_cd_local(table_name: str) -> dict:
+    """
+    本地文件系统搜索实现（原始版本）
+    """
     system = FileSystemTool()
     schema = table_name.split(".")[0]
     name = table_name.split(".")[1]
-    logger.info(f"正在查找表: {table_name} 代码")
+    logger.info(f"正在本地查找表: {table_name} 代码")
 
     files = system.search_files_by_name("nb_" + name)
     if not files:
@@ -657,7 +663,8 @@ def search_table_cd(table_name: str) -> dict:
                 'size': size,
                 'last_modified': datetime.fromtimestamp(last_modified).strftime('%Y-%m-%d %H:%M:%S')
             },
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now().isoformat(),
+            'source': 'local'  # 标记数据来源
         }
         return file_info
     return {"status": "error", "message": f"暂不支持的代码文件格式: {file.name}, 仅支持 .sql 和 .py 文件。请检查表名或代码文件格式。"}
@@ -667,9 +674,6 @@ def search_table_cd(table_name: str) -> dict:
 # 注意：此函数已被重构为子图架构，见 validation_nodes.py
 async def edw_model_enhance_data_validation_node_old(state: EDWState):
     """模型增强数据验证节点：验证用户输入信息的完整性"""
-    print(">>> edw_model_enhance_data_validation Node")
-    writer = get_stream_writer()
-    writer({"node": ">>> edw_model_enhance_data_validation"})
 
     try:
         config = SessionManager.get_config(state.get("user_id", ""), "validation")
@@ -681,7 +685,6 @@ async def edw_model_enhance_data_validation_node_old(state: EDWState):
         else:
             content = last_message.content if hasattr(last_message, 'content') else str(last_message)
 
-        writer({"status": "正在分析用户需求..."})
 
         # 构建消息列表，检查是否有之前的错误信息
         if state.get("error_message") and state.get("validation_status") == "incomplete_info":
@@ -704,13 +707,11 @@ async def edw_model_enhance_data_validation_node_old(state: EDWState):
         # 获取LLM响应
         validation_result = response["messages"][-1].content
         logger.info(f"LLM原始响应: {validation_result}")
-        writer({"llm_response": validation_result})
 
         # 使用LangChain输出解析器优雅地解析响应
         try:
             # 使用PydanticOutputParser解析LLM响应
             parsed_request = parser.parse(validation_result)
-            writer({"parsed_data": parsed_request.model_dump()})
 
             # 验证英文模型名称格式
             if parsed_request.model_attribute_name:
@@ -746,9 +747,6 @@ async def edw_model_enhance_data_validation_node_old(state: EDWState):
 
                 complete_message = f"为了帮您完成模型增强，我需要以下信息：\n{missing_info_text}\n\n请补充完整信息后重新提交。"
 
-                writer({"error": complete_message})
-                writer({"missing_fields": missing_fields})
-                writer({"content": complete_message})  # 确保用户能看到提示
 
                 # 不再需要调用 valid_agent.invoke()，因为错误信息已保存到状态中
 
@@ -765,7 +763,6 @@ async def edw_model_enhance_data_validation_node_old(state: EDWState):
             table_name = parsed_request.table_name.strip()
             logic_detail = parsed_request.logic_detail.strip()
 
-            writer({"status": f"正在查询表 {table_name} 的源代码..."})
 
             # 调用search_table_cd查询表的源代码
             try:
@@ -787,8 +784,6 @@ async def edw_model_enhance_data_validation_node_old(state: EDWState):
                         "messages": [HumanMessage(error_msg)]
                     }
 
-                writer({"status": "信息收集完成，开始验证字段与底表的关联性"})
-                writer({"table_found": True, "table_name": table_name})
 
                 # 转换为ADB路径
                 code_path = code_info.get("file_path", "")
@@ -801,7 +796,6 @@ async def edw_model_enhance_data_validation_node_old(state: EDWState):
 
                 # 验证字段与底表的关联性
                 if base_tables and parsed_request.fields:
-                    writer({"status": f"正在验证 {len(parsed_request.fields)} 个新增字段与底表的关联性..."})
 
                     field_validation = await validate_fields_against_base_tables(
                         parsed_request.fields,
@@ -854,9 +848,6 @@ async def edw_model_enhance_data_validation_node_old(state: EDWState):
 
 请确认字段名称是否正确，或参考建议字段进行修正。"""
 
-                        writer({"error": validation_error_msg})
-                        writer({"content": validation_error_msg})
-                        writer({"field_validation": field_validation})
 
                         # 不再需要调用 valid_agent.invoke()，因为错误信息已保存到状态中
 
@@ -869,18 +860,15 @@ async def edw_model_enhance_data_validation_node_old(state: EDWState):
                             "messages": [HumanMessage(validation_error_msg)]
                         }
                     else:
-                        writer({"status": "字段验证通过"})
 
                         # 添加缓存性能信息到成功验证的情况
                         if "cache_performance" in field_validation:
                             cache_perf = field_validation["cache_performance"]
-                            writer({"cache_performance": f"查询性能: 耗时{cache_perf['duration_seconds']}秒, 缓存命中率: {cache_perf['overall_hit_rate']}"})
 
                         if field_validation["suggestions"]:
                             suggestions_msg = "字段建议：\\n"
                             for field_name, suggestions in field_validation["suggestions"].items():
                                 suggestions_msg += f"- {field_name}: 发现相似字段 {suggestions[0]['field_name']} (相似度: {suggestions[0]['similarity']:.2f})\\n"
-                            writer({"field_suggestions": suggestions_msg})
                 else:
                     logger.info("未找到底表或新增字段为空，跳过字段验证")
 
@@ -918,7 +906,6 @@ async def edw_model_enhance_data_validation_node_old(state: EDWState):
             except Exception as code_error:
                 error_msg = f"查询表代码失败: {str(code_error)}"
                 logger.error(error_msg)
-                writer({"error": error_msg})
                 return {
                     "validation_status": "incomplete_info",  # 确保用户重试时能获得错误上下文
                     "error_message": error_msg,
@@ -931,8 +918,6 @@ async def edw_model_enhance_data_validation_node_old(state: EDWState):
             # LangChain的parser可能抛出多种异常，统一处理
             error_msg = "信息格式解析失败。请使用更清晰的格式描述需求，确保包含：\n1. 表名（如：dwd_fi.fi_invoice_item）\n2. 具体的增强逻辑"
             logger.error(f"解析错误: {str(parse_error)}. 原始响应: {validation_result}")
-            writer({"error": error_msg})
-            writer({"content": error_msg})
 
             # 不再需要调用 valid_agent.invoke()，因为错误信息已保存到状态中
 
@@ -946,7 +931,6 @@ async def edw_model_enhance_data_validation_node_old(state: EDWState):
     except Exception as e:
         error_msg = f"数据验证失败: {str(e)}"
         logger.error(error_msg)
-        writer({"error": error_msg})
         return {
             "validation_status": "incomplete_info",  # 确保用户重试时能获得错误上下文
             "error_message": error_msg,
@@ -959,19 +943,14 @@ async def edw_model_enhance_data_validation_node_old(state: EDWState):
 
 def edw_model_add_data_validation_node(state: EDWState):
     """模型新增数据验证节点"""
-    print(">>> edw_model_add_data_validation Node")
-    writer = get_stream_writer()
-    writer({"node": ">>> edw_model_add_data"})
-    writer({"status": "数据验证进行中"})
     return {}
 
 
 # 主要进行模型增强等相关工作
 async def _run_code_enhancement(table_name: str, source_code: str, adb_code_path: str,
-                                fields: list, logic_detail: str, writer, code_path: str = "") -> dict:
+                                fields: list, logic_detail: str, code_path: str = "") -> dict:
     """异步执行代码增强的核心函数"""
     try:
-        writer({"progress": "正在获取全局代码增强智能体..."})
 
         # 判断代码类型
         file_path = code_path or adb_code_path or ""
@@ -982,11 +961,8 @@ async def _run_code_enhancement(table_name: str, source_code: str, adb_code_path
             code_language = "python"
             code_type_desc = "Python"
 
-        writer({"progress": f"检测到代码类型: {code_type_desc}"})
-
         # 获取全局的代码增强智能体（复用）
         enhancement_agent, tools = await _get_global_code_enhancement_agent()
-        writer({"progress": f"使用全局智能体，共 {len(tools)} 个工具"})
 
         # 构造字段信息字符串
         fields_info = []
@@ -1027,8 +1003,6 @@ async def _run_code_enhancement(table_name: str, source_code: str, adb_code_path
   "table_comment":"表comment"
 }}"""
 
-        writer({"progress": "正在执行代码增强，智能体将自动分析表结构和依赖关系..."})
-        writer({"status": f"智能体开始处理表 {table_name} 的增强需求..."})
 
         # 使用配置管理器获取配置 - 为每个用户生成独立的thread_id
         config = SessionManager.get_config("", f"enhancement_{table_name}")
@@ -1044,13 +1018,6 @@ async def _run_code_enhancement(table_name: str, source_code: str, adb_code_path
         enhancement_result = _parse_agent_response(response_content)
 
         if enhancement_result.get("enhanced_code"):
-            writer({"progress": "代码增强成功完成"})
-            writer({"enhancement_details": {
-                "enhanced_code_length": len(enhancement_result.get("enhanced_code", "")),
-                "fields_processed": len(fields),
-                "has_create_table": bool(enhancement_result.get("new_table_ddl")),
-                "has_alter_table": bool(enhancement_result.get("alter_statements"))
-            }})
 
             logger.info(f"代码增强成功: {table_name}")
             return {
@@ -1063,7 +1030,6 @@ async def _run_code_enhancement(table_name: str, source_code: str, adb_code_path
             }
         else:
             error_msg = "智能体未能生成有效的增强代码"
-            writer({"error": error_msg})
             logger.error(error_msg)
             return {
                 "success": False,
@@ -1073,7 +1039,6 @@ async def _run_code_enhancement(table_name: str, source_code: str, adb_code_path
     except Exception as e:
         error_msg = f"执行代码增强时发生异常: {str(e)}"
         logger.error(error_msg)
-        writer({"error": error_msg})
         return {
             "success": False,
             "error": error_msg
@@ -1136,9 +1101,6 @@ def _parse_agent_response(content: str) -> dict:
 
 def edw_model_enhance_node(state: EDWState):
     """模型增强处理节点"""
-    print(">>> edw_model_enhance Node")
-    writer = get_stream_writer()
-    writer({"node": ">>> edw_model_enhance"})
 
     try:
         # 提取状态中的信息
@@ -1151,13 +1113,10 @@ def edw_model_enhance_node(state: EDWState):
         user_id = state.get("user_id", "")
         enhancement_type = state.get("enhancement_type", "add_field")
 
-        writer({"status": f"开始增强模型 {table_name}..."})
-        writer({"progress": "正在初始化代码增强引擎"})
 
         # 验证必要信息
         if not table_name or not source_code:
             error_msg = "缺少必要信息：表名或源代码为空"
-            writer({"error": error_msg})
             return {
                 "error_message": error_msg,
                 "user_id": user_id
@@ -1165,13 +1124,11 @@ def edw_model_enhance_node(state: EDWState):
 
         if not fields:
             error_msg = "没有找到新增字段信息"
-            writer({"error": error_msg})
             return {
                 "error_message": error_msg,
                 "user_id": user_id
             }
 
-        writer({"progress": f"准备增强 {len(fields)} 个字段"})
 
         # 异步执行代码增强
         enhancement_result = asyncio.run(_run_code_enhancement(
@@ -1180,18 +1137,10 @@ def edw_model_enhance_node(state: EDWState):
             adb_code_path=adb_code_path,
             fields=fields,
             logic_detail=logic_detail,
-            writer=writer,
             code_path=code_path
         ))
 
         if enhancement_result.get("success"):
-            writer({"status": "模型增强完成"})
-            writer({"result": "代码增强成功"})
-
-            # 根据增强类型添加提示
-            if enhancement_type == "modify_logic":
-                writer({"info": "检测到逻辑修改类型，将跳过ADB更新、Confluence文档和邮件发送流程"})
-                writer({"content": "逻辑修改已完成，增强代码已生成。由于是纯逻辑修改，无需更新ADB和发送邮件。"})
 
             # 验证从表comment提取的模型名称格式
             table_comment_model_name = enhancement_result.get("table_comment", "")
@@ -1200,8 +1149,7 @@ def edw_model_enhance_node(state: EDWState):
             if table_comment_model_name:
                 is_valid_comment_name, comment_name_error = _validate_english_model_name(table_comment_model_name)
                 if not is_valid_comment_name:
-                    writer({"warning": f"表comment中的模型名称格式不符合标准: {comment_name_error}"})
-                    writer({"suggestion": "建议更新表comment使用标准英文格式，如：Finance Invoice Header"})
+                    logger.warning(f"表comment中的模型名称格式不符合标准: {comment_name_error}")
                     # 不阻止流程继续，但记录警告
                     validated_model_name = ""
 
@@ -1223,7 +1171,7 @@ def edw_model_enhance_node(state: EDWState):
             }
         else:
             error_msg = enhancement_result.get("error", "未知错误")
-            writer({"error": f"代码增强失败: {error_msg}"})
+            logger.error(f"代码增强失败: {error_msg}")
             return {
                 "error_message": error_msg,
                 "user_id": user_id,
@@ -1233,7 +1181,6 @@ def edw_model_enhance_node(state: EDWState):
     except Exception as e:
         error_msg = f"模型增强节点处理失败: {str(e)}"
         logger.error(error_msg)
-        writer({"error": error_msg})
         return {
             "error_message": error_msg,
             "user_id": state.get("user_id", ""),
@@ -1245,10 +1192,6 @@ def edw_model_enhance_node(state: EDWState):
 
 def edw_model_addition_node(state: EDWState):
     """模型新增处理节点"""
-    print(">>> edw_model_addition Node")
-    writer = get_stream_writer()
-    writer({"node": ">>> edw_model_addition"})
-    writer({"status": "模型新增处理中"})
     return {}
 
 
@@ -1315,11 +1258,11 @@ EDW_EMAIL_HTML_TEMPLATE = """
             border-collapse: collapse;
             margin-bottom: 20px;
         }}
-        .thank-you {{
+        .review-log-title {{
             font-size: 16px;
+            font-weight: 600;
             color: #323130;
-            margin: 25px 0;
-            font-weight: 500;
+            margin: 25px 0 15px 0;
         }}
         .footer {{
             background: #f8f9fa;
@@ -1343,17 +1286,17 @@ EDW_EMAIL_HTML_TEMPLATE = """
         </div>
 
         <div class="content">
-            <div class="greeting">{greeting}</div>
-
-            <!-- AI生成提示框 -->
-            <div style="background: #f0f8ff; border: 2px solid #4a90e2; border-radius: 8px; padding: 15px; margin: 20px 0; text-align: center;">
+            <!-- AI生成提示框 - 移到最上面 -->
+            <div style="background: #f0f8ff; border: 2px solid #4a90e2; border-radius: 8px; padding: 15px; margin-bottom: 20px; text-align: center;">
                 <p style="margin: 0; color: #2c5aa0; font-weight: 600; font-size: 14px;">
-                    🤖 本邮件内容由EDW智能助手自动生成 | AI Generated Content
+                    🤖 本邮件内容由智能体发出 | AI Generated Content
                 </p>
             </div>
 
+            <div class="greeting">{greeting}</div>
+
             <div class="model-name">
-                {model_full_name}
+                请帮忙review {model_full_name} 模型增强
             </div>
 
             <div class="fields-section">
@@ -1363,8 +1306,7 @@ EDW_EMAIL_HTML_TEMPLATE = """
                 </table>
             </div>
 
-            <div class="thank-you">请帮忙review 谢谢</div>
-
+            <div class="review-log-title">Review log:</div>
             {review_link_html}
         </div>
 
@@ -1396,8 +1338,16 @@ def _build_html_email_template(table_name: str, model_name: str, schema: str,
     # 确定问候语
     greeting = EDW_EMAIL_GREETING_MAP.get(schema.lower(), EDW_EMAIL_GREETING_MAP["default"])
 
-    # 构建模型全名
-    model_full_name = f"{schema}.{model_name or table_name.split('.')[-1] if '.' in table_name else table_name}"
+    # 构建模型全名 - 优先使用模型名称
+    if model_name:
+        # 如果有模型名称，使用模型名称
+        model_full_name = f"{schema}.{model_name}"
+    else:
+        # 如果没有模型名称，从表名提取
+        table_suffix = table_name.split('.')[-1] if '.' in table_name else table_name
+        # 将下划线转换为空格，并首字母大写
+        formatted_name = table_suffix.replace('_', ' ').title()
+        model_full_name = f"{schema}.{formatted_name}"
 
     # 构建字段列表HTML
     fields_html = ""
@@ -1509,9 +1459,6 @@ def _send_email_via_metis(html_content: str, model_name: str, table_name: str) -
 # 负责发送邮件
 def edw_email_node(state: EDWState):
     """优化的友好邮件发送节点"""
-    print(">>> edw_email Node")
-    writer = get_stream_writer()
-    writer({"node": ">>> edw_email"})
 
     try:
         # 从state中获取相关信息
@@ -1527,17 +1474,8 @@ def edw_email_node(state: EDWState):
         if '.' in table_name:
             schema = table_name.split('.')[0]
 
-        writer({"status": f"准备发送邮件通知: {table_name}"})
-        writer({"email_info": {
-            "table_name": table_name,
-            "model_name": model_name,
-            "schema": schema,
-            "fields_count": len(fields),
-            "has_confluence_link": bool(confluence_page_url)
-        }})
 
         # 构建HTML邮件内容
-        writer({"progress": "正在构建HTML邮件模板..."})
         html_content = _build_html_email_template(
             table_name=table_name,
             model_name=model_name,
@@ -1547,23 +1485,12 @@ def edw_email_node(state: EDWState):
             confluence_title=confluence_title
         )
 
-        writer({"progress": "正在发送邮件..."})
 
         # 发送邮件
         send_result = _send_email_via_metis(html_content, model_name, table_name)
 
         if send_result.get("success"):
-            writer({"status": "邮件发送成功"})
-            writer({"result": "HTML格式的review邮件已发送给相关审核人员"})
-            writer({"email_sent": True})
-
-            # 输出发送详情
-            writer({"email_details": {
-                "format": "HTML",
-                "confluence_link_included": bool(confluence_page_url),
-                "fields_included": len(fields),
-                "send_status": "success"
-            }})
+            logger.info("邮件发送成功")
 
             return {
                 "user_id": user_id,
@@ -1578,11 +1505,7 @@ def edw_email_node(state: EDWState):
             }
         else:
             error_msg = send_result.get("error", "未知错误")
-            writer({"error": f"邮件发送失败: {error_msg}"})
-            writer({"email_sent": False})
-
-            # 仍然输出HTML预览供调试
-            writer({"html_preview": html_content})
+            logger.error(f"邮件发送失败: {error_msg}")
 
             return {
                 "error_message": f"邮件发送失败: {error_msg}",
@@ -1595,7 +1518,6 @@ def edw_email_node(state: EDWState):
     except Exception as e:
         error_msg = f"邮件节点处理失败: {str(e)}"
         logger.error(error_msg)
-        writer({"error": error_msg})
         return {
             "error_message": error_msg,
             "user_id": state.get("user_id", ""),
@@ -1607,13 +1529,12 @@ def edw_email_node(state: EDWState):
 
 async def _create_confluence_documentation(table_name: str, model_name: str,
                                            enhanced_code: str, fields: list,
-                                           alter_table_sql: str, writer, user_id: str,
+                                           alter_table_sql: str, user_id: str,
                                            enhancement_type: str = "add_field", base_tables: list = None) -> dict:
     """异步创建Confluence文档的核心函数"""
     try:
         from src.basic.confluence.confluence_tools import ConfluenceWorkflowTools
 
-        writer({"progress": "正在初始化Confluence工具..."})
 
         # 解析表名获取schema信息
         if '.' in table_name:
@@ -1631,7 +1552,6 @@ async def _create_confluence_documentation(table_name: str, model_name: str,
             "alter_sql": alter_table_sql
         }
 
-        writer({"progress": "正在收集模型文档信息..."})
 
         # 创建Confluence工具实例
         tools = ConfluenceWorkflowTools()
@@ -1646,7 +1566,6 @@ async def _create_confluence_documentation(table_name: str, model_name: str,
             }
 
         # 根据用户要求直接构建model_config
-        writer({"progress": "正在构建自定义model_config..."})
 
         # 获取相关人员信息
         stakeholders = tools._get_model_stakeholders(schema)
@@ -1668,34 +1587,34 @@ async def _create_confluence_documentation(table_name: str, model_name: str,
         final_model_name = model_name or table.replace('_', ' ').title()
 
         # 构建标题，避免特殊字符和长度问题
-        base_title = f"{current_date}: {domain} Data Model Review - {final_model_name} {operation_type}"
+        base_title = f"{current_date}: {domain} {final_model_name} {operation_type}"
         ai_suffix = " [AI Generated]"
 
         # 确保标题不超过Confluence限制（通常是255字符，保留一些余量）
         max_length = 200
         if len(base_title) + len(ai_suffix) > max_length:
             # 截断model_name部分
-            available_for_name = max_length - len(f"{current_date}: {domain} Data Model Review -  {operation_type}") - len(ai_suffix)
+            available_for_name = max_length - len(f"{current_date}: {domain}  {operation_type}") - len(ai_suffix)
             if available_for_name > 10:
                 final_model_name = final_model_name[:available_for_name - 3] + "..."
-                base_title = f"{current_date}: {domain} Data Model Review - {final_model_name} {operation_type}"
+                base_title = f"{current_date}: {domain} {final_model_name} {operation_type}"
 
         final_title = base_title + ai_suffix
         logger.info(f"创建Confluence页面标题: {final_title} (长度: {len(final_title)})")
 
         custom_model_config = {
             "title": final_title,
-            "requirement_description": f"为 {table_name} 增加了 {len(fields)} 个新字段以支持业务需求",
+            "requirement_description": f"AI Agent 自动为 {table_name} 增强了 {len(fields)} 个新字段",
             "entity_list": f"{schema}.{final_model_name}",
             "review_requesters": stakeholders.get("requesters", ["@EDW Requester"]),
             "reviewer_mandatory": stakeholders.get("reviewers", ["@EDW Reviewer"])[0] if stakeholders.get("reviewers") else "@EDW Reviewer",
-            "knowledge_link": "待添加知识库链接",
+            "knowledge_link": "本文档由AI Agent自动生成，包含模型增强信息",
             "review_date": datetime.now().strftime('%Y年%m月%d日'),
             "status_tags": [
                 {"title": "REQUIRE UPDATE", "color": "Yellow"}
             ],
             "dataflow": {
-                "source": ", ".join(base_tables[:3]) + ("..." if len(base_tables) > 3 else "") if base_tables else f"Original {table_name}",
+                "source": ", ".join(base_tables[:3]) + ("..." if len(base_tables) > 3 else "") if base_tables else "Multiple Source Tables",
                 "target": table_name
             },
             "model_fields": []
@@ -1725,12 +1644,6 @@ async def _create_confluence_documentation(table_name: str, model_name: str,
                 }
                 custom_model_config["model_fields"].append(field_info)
 
-        writer({"progress": "正在创建Confluence页面..."})
-        writer({"confluence_info": {
-            "title": custom_model_config["title"],
-            "entity_list": custom_model_config["entity_list"],
-            "fields_count": len(custom_model_config["model_fields"])
-        }})
 
         # 直接使用ConfluenceManager创建页面
         from src.basic.confluence.confluence_operate import ConfluenceManager
@@ -1756,14 +1669,6 @@ async def _create_confluence_documentation(table_name: str, model_name: str,
         parent_page = cm.find_page_by_path(space_key, page_path)
         if not parent_page:
             error_msg = f"未找到父页面路径: {' -> '.join(page_path)}"
-            writer({"error": error_msg})
-            writer({
-                "error_details": {
-                    "required_path": page_path,
-                    "space": tools.target_space_name,
-                    "suggestion": "请检查Confluence中是否存在完整的页面路径结构"
-                }
-            })
             raise Exception(error_msg)
 
         # 创建页面
@@ -1800,13 +1705,11 @@ async def _create_confluence_documentation(table_name: str, model_name: str,
         else:
             raise Exception("页面创建失败")
 
-        writer({"progress": "Confluence文档创建成功"})
         return result
 
     except Exception as e:
         error_msg = f"创建Confluence文档时发生异常: {str(e)}"
         logger.error(error_msg)
-        writer({"error": error_msg})
         return {
             "success": False,
             "error": error_msg
@@ -1815,9 +1718,6 @@ async def _create_confluence_documentation(table_name: str, model_name: str,
 
 def edw_confluence_node(state: EDWState):
     """增强的Confluence文档更新节点"""
-    print(">>> edw_confluence Node")
-    writer = get_stream_writer()
-    writer({"node": ">>> edw_confluence"})
 
     try:
         # 提取状态中的信息
@@ -1830,12 +1730,10 @@ def edw_confluence_node(state: EDWState):
         enhancement_type = state.get("enhancement_type", "add_field")
         base_tables = state.get("base_tables", [])
 
-        writer({"status": f"开始创建Confluence文档: {table_name}"})
 
         # 验证必要信息
         if not table_name:
             error_msg = "缺少表名信息，无法创建Confluence文档"
-            writer({"error": error_msg})
             return {
                 "error_message": error_msg,
                 "user_id": user_id
@@ -1843,23 +1741,13 @@ def edw_confluence_node(state: EDWState):
 
         if not enhanced_code:
             error_msg = "缺少增强代码，无法创建完整的Confluence文档"
-            writer({"warning": error_msg})
+            logger.warning(error_msg)
             # 不阻止流程，但记录警告
 
         if not fields:
             error_msg = "没有新增字段信息，将创建基础文档"
-            writer({"warning": error_msg})
+            logger.warning(error_msg)
 
-        writer({"progress": "正在准备Confluence文档创建..."})
-        writer({"confluence_details": {
-            "table_name": table_name,
-            "model_name": model_name,
-            "fields_count": len(fields),
-            "has_enhanced_code": bool(enhanced_code),
-            "has_alter_sql": bool(alter_table_sql),
-            "base_tables_count": len(base_tables),
-            "base_tables": base_tables[:5]  # 显示前5个底表供调试
-        }})
 
         # 异步执行Confluence文档创建
         confluence_result = asyncio.run(_create_confluence_documentation(
@@ -1868,29 +1756,19 @@ def edw_confluence_node(state: EDWState):
             enhanced_code=enhanced_code,
             fields=fields,
             alter_table_sql=alter_table_sql,
-            writer=writer,
             user_id=user_id,
             enhancement_type=enhancement_type,
             base_tables=base_tables
         ))
 
         if confluence_result.get("success"):
-            writer({"status": "Confluence文档创建成功"})
-            writer({"result": "文档已上传到Confluence"})
-            writer({"page_url": confluence_result.get("page_url", "")})
+            logger.info("Confluence文档创建成功")
 
             # 保存Confluence信息到state中，方便后续节点使用
             confluence_page_url = confluence_result.get("page_url", "")
             confluence_page_id = confluence_result.get("page_id", "")
             confluence_title = confluence_result.get("page_title", "")
 
-            # 输出给用户查看
-            writer({"confluence_summary": {
-                "page_url": confluence_page_url,
-                "page_id": confluence_page_id,
-                "title": confluence_title,
-                "status": "创建成功"
-            }})
 
             return {
                 "user_id": user_id,
@@ -1905,7 +1783,7 @@ def edw_confluence_node(state: EDWState):
             }
         else:
             error_msg = confluence_result.get("error", "未知错误")
-            writer({"error": f"Confluence文档创建失败: {error_msg}"})
+            logger.error(f"Confluence文档创建失败: {error_msg}")
             return {
                 "error_message": error_msg,
                 "user_id": user_id,
@@ -1915,19 +1793,17 @@ def edw_confluence_node(state: EDWState):
     except Exception as e:
         error_msg = f"Confluence节点处理失败: {str(e)}"
         logger.error(error_msg)
-        writer({"error": error_msg})
         return {
             "error_message": error_msg,
             "user_id": state.get("user_id", "")
         }
 
 
-async def _update_adb_notebook(adb_path: str, enhanced_code: str, language: str, writer) -> dict:
+async def _update_adb_notebook(adb_path: str, enhanced_code: str, language: str) -> dict:
     """异步更新ADB笔记本的核心函数"""
     try:
         from src.mcp.mcp_client import get_mcp_client
 
-        writer({"progress": f"正在连接MCP服务更新ADB笔记本: {adb_path}"})
 
         async with get_mcp_client() as client:
             if client:
@@ -1943,7 +1819,6 @@ async def _update_adb_notebook(adb_path: str, enhanced_code: str, language: str,
                             break
 
                     if import_tool:
-                        writer({"progress": f"找到MCP工具: {import_tool.name}"})
 
                         # 调用import_notebook方法
                         result = await import_tool.ainvoke({
@@ -1952,7 +1827,6 @@ async def _update_adb_notebook(adb_path: str, enhanced_code: str, language: str,
                             "language": language
                         })
 
-                        writer({"progress": f"ADB笔记本更新成功: {adb_path}"})
                         return {
                             "success": True,
                             "result": str(result),
@@ -2018,9 +1892,6 @@ def _detect_code_language(code_path: str, source_code: str = "") -> str:
 
 def edw_adb_update_node(state: EDWState):
     """增强的ADB数据库更新节点 - 调用MCP服务更新笔记本"""
-    print(">>> edw_adb_update Node")
-    writer = get_stream_writer()
-    writer({"node": ">>> edw_adb_update"})
 
     try:
         # 提取状态中的信息
@@ -2031,12 +1902,10 @@ def edw_adb_update_node(state: EDWState):
         user_id = state.get("user_id", "")
         table_name = state.get("table_name")
 
-        writer({"status": f"开始更新ADB笔记本: {table_name}"})
 
         # 验证必要参数
         if not adb_code_path:
             error_msg = "缺少ADB代码路径"
-            writer({"error": error_msg})
             return {
                 "error_message": error_msg,
                 "user_id": user_id
@@ -2044,7 +1913,6 @@ def edw_adb_update_node(state: EDWState):
 
         if not enhanced_code:
             error_msg = "缺少增强后的代码"
-            writer({"error": error_msg})
             return {
                 "error_message": error_msg,
                 "user_id": user_id
@@ -2052,27 +1920,18 @@ def edw_adb_update_node(state: EDWState):
 
         # 检测代码语言
         language = _detect_code_language(code_path or adb_code_path, source_code)
-        writer({"progress": f"检测到代码语言: {language}"})
 
-        writer({"progress": "准备更新ADB笔记本..."})
-        writer({"adb_update_info": {
-            "path": adb_code_path,
-            "language": language,
-            "code_length": len(enhanced_code)
-        }})
 
         # 异步执行ADB更新
         import asyncio
         update_result = asyncio.run(_update_adb_notebook(
             adb_path=adb_code_path,
             enhanced_code=enhanced_code,
-            language=language,
-            writer=writer
+            language=language
         ))
 
         if update_result.get("success"):
-            writer({"status": "ADB笔记本更新成功"})
-            writer({"result": "ADB代码更新完成"})
+            logger.info("ADB笔记本更新成功")
 
             return {
                 "user_id": user_id,
@@ -2084,7 +1943,7 @@ def edw_adb_update_node(state: EDWState):
             }
         else:
             error_msg = update_result.get("error", "未知错误")
-            writer({"error": f"ADB更新失败: {error_msg}"})
+            logger.error(f"ADB更新失败: {error_msg}")
             return {
                 "error_message": error_msg,
                 "user_id": user_id,
@@ -2094,7 +1953,6 @@ def edw_adb_update_node(state: EDWState):
     except Exception as e:
         error_msg = f"ADB更新节点处理失败: {str(e)}"
         logger.error(error_msg)
-        writer({"error": error_msg})
         return {
             "error_message": error_msg,
             "user_id": state.get("user_id", "")
@@ -2103,8 +1961,6 @@ def edw_adb_update_node(state: EDWState):
 
 def model_routing_fun(state: EDWState):
     """模型开发路由函数"""
-    print(">>> model_routing_fun")
-    print(state)
     if "model_enhance" in state["type"]:
         return "model_enhance_data_validation_node"
     elif "model_add" in state["type"]:
@@ -2117,10 +1973,6 @@ def validation_check_node(state: EDWState):
     """验证检查节点：处理验证状态并实施中断"""
     from langgraph.types import interrupt, Command
     
-    print(">>> validation_check Node")
-    writer = get_stream_writer()
-    writer({"node": ">>> validation_check"})
-    
     validation_status = state.get("validation_status")
     user_id = state.get("user_id", "")
     
@@ -2130,8 +1982,6 @@ def validation_check_node(state: EDWState):
         failed_node = state.get("failed_validation_node", "unknown")
         
         logger.info(f"验证失败于节点: {failed_node}, 准备中断等待用户输入")
-        writer({"status": f"验证失败，需要补充信息"})
-        writer({"content": error_message})
         
         # 🔥 在节点中中断，等待用户补充信息
         user_input = interrupt({
@@ -2149,7 +1999,6 @@ def validation_check_node(state: EDWState):
     
     # 验证通过，可以继续
     elif validation_status == "completed":
-        writer({"status": "验证通过，继续处理"})
         
         return {
             "validation_status": "proceed",  # 标记可以继续
@@ -2177,9 +2026,7 @@ def route_after_validation_check(state: EDWState):
 
 def enhancement_routing_fun(state: EDWState):
     """增强完成后的路由函数：决定是否需要走后续流程"""
-    print(">>> enhancement_routing_fun")
     enhancement_type = state.get("enhancement_type", "")
-    print(f"Enhancement type: {enhancement_type}")
 
     # 如果是仅修改逻辑，直接结束
     if enhancement_type == "modify_logic":
@@ -2262,38 +2109,34 @@ def create_message_from_input(user_input: str) -> HumanMessage:
 
 
 if __name__ == "__main__":
-    print("EDW智能助手启动成功！输入'quit'退出。")
-    print("管理命令：/cache help, /config help")
+    # 这个文件不应该直接运行，应通过API或其他接口调用
+    pass
 
     # 模拟用户ID（实际应用中应该从认证系统获取）
-    user_id = input("请输入用户ID（可选，直接回车使用随机ID）: ").strip()
-    if not user_id:
-        user_id = str(uuid.uuid4())[:8]
+    user_id = str(uuid.uuid4())[:8]
+    logger.info(f"当前用户ID: {user_id}")
 
-    print(f"当前用户ID: {user_id}")
+    # 记录初始系统状态
+    logger.info(f"配置文件路径: {config_manager.config_dir}")
 
-    # 显示初始系统状态
-    print(f"配置文件路径: {config_manager.config_dir}")
-
-    # 显示MCP连接配置
+    # 记录MCP连接配置
     databricks_config = config_manager.get_mcp_server_config("databricks")
     if databricks_config:
         if databricks_config.transport == "sse":
-            print(f"MCP连接模式: SSE - {databricks_config.url}")
-            print(f"连接参数: 超时={databricks_config.timeout}s, 重试={databricks_config.retry_count}次")
+            logger.info(f"MCP连接模式: SSE - {databricks_config.url}")
+            logger.info(f"连接参数: 超时={databricks_config.timeout}s, 重试={databricks_config.retry_count}次")
         else:
-            print(f"MCP连接模式: {databricks_config.transport}")
-            print(f"连接参数: 超时={databricks_config.timeout}s, 重试={databricks_config.retry_count}次")
+            logger.info(f"MCP连接模式: {databricks_config.transport}")
+            logger.info(f"连接参数: 超时={databricks_config.timeout}s, 重试={databricks_config.retry_count}次")
     else:
-        print("MCP连接模式: 默认配置")
+        logger.info("MCP连接模式: 默认配置")
 
-    # 显示缓存状态
+    # 记录缓存状态
     if cache_manager:
         stats = cache_manager.get_stats()
-        print(f"缓存系统已启动 - TTL: {stats['ttl_seconds']}秒, 最大条目: {stats['max_entries']}")
+        logger.info(f"缓存系统已启动 - TTL: {stats['ttl_seconds']}秒, 最大条目: {stats['max_entries']}")
     else:
-        print("缓存系统已禁用")
-    print(f"\n使用 '/test sse' 命令测试SSE连接")
+        logger.info("缓存系统已禁用")
     index = 0
     
     # 定义处理输出的函数，避免代码重复
