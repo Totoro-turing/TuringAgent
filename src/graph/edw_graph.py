@@ -1195,6 +1195,108 @@ def edw_model_addition_node(state: EDWState):
     return {}
 
 
+def github_push_node(state: EDWState):
+    """将AI修改的代码推送到GitHub远程仓库"""
+    
+    try:
+        # 从状态中获取必要信息
+        enhanced_code = state.get("enhance_code", "")  # 增强后的代码
+        code_path = state.get("code_path", "")  # 原始代码路径
+        table_name = state.get("table_name", "")
+        user_id = state.get("user_id", "")
+        
+        # 验证必要信息
+        if not enhanced_code:
+            error_msg = "缺少增强后的代码，无法推送到GitHub"
+            logger.error(error_msg)
+            return {
+                "github_push_status": "skipped",
+                "github_push_message": error_msg,
+                "user_id": user_id
+            }
+        
+        if not code_path:
+            error_msg = "缺少代码文件路径，无法推送到GitHub"
+            logger.error(error_msg)
+            return {
+                "github_push_status": "skipped", 
+                "github_push_message": error_msg,
+                "user_id": user_id
+            }
+        
+        logger.info(f"准备将增强后的代码推送到GitHub: {code_path}")
+        
+        # 初始化GitHub工具
+        try:
+            github_tool = GitHubTool()
+        except Exception as e:
+            error_msg = f"初始化GitHub工具失败: {str(e)}"
+            logger.error(error_msg)
+            return {
+                "github_push_status": "error",
+                "github_push_error": error_msg,
+                "user_id": user_id
+            }
+        
+        # 推送代码到GitHub
+        try:
+            # 使用固定的提交信息 "AI Code"
+            commit_message = "AI Code"
+            
+            # 调用GitHub工具的commit_file方法
+            result = github_tool.commit_file(
+                file_path=code_path,
+                content=enhanced_code,
+                message=commit_message
+            )
+            
+            # 检查推送结果
+            if result.get("status") == "success":
+                logger.info(f"成功推送代码到GitHub: {result}")
+                
+                return {
+                    "github_push_status": "success",
+                    "github_push_result": result,
+                    "github_commit_sha": result.get("commit", {}).get("sha", ""),
+                    "github_commit_url": result.get("commit", {}).get("url", ""),
+                    "github_file_url": result.get("file", {}).get("url", ""),
+                    "user_id": user_id
+                }
+            elif result.get("status") == "no_change":
+                logger.info("代码内容未发生变化，无需推送")
+                return {
+                    "github_push_status": "no_change",
+                    "github_push_message": "代码内容未发生变化",
+                    "user_id": user_id
+                }
+            else:
+                error_msg = result.get("message", "GitHub推送失败")
+                logger.error(f"GitHub推送失败: {error_msg}")
+                return {
+                    "github_push_status": "error",
+                    "github_push_error": error_msg,
+                    "user_id": user_id
+                }
+                
+        except Exception as e:
+            error_msg = f"推送到GitHub时发生异常: {str(e)}"
+            logger.error(error_msg)
+            return {
+                "github_push_status": "error",
+                "github_push_error": error_msg,
+                "user_id": user_id
+            }
+            
+    except Exception as e:
+        error_msg = f"GitHub推送节点处理失败: {str(e)}"
+        logger.error(error_msg)
+        return {
+            "github_push_status": "error",
+            "github_push_error": error_msg,
+            "user_id": state.get("user_id", "")
+        }
+
+
 # EDW邮件HTML模板常量
 EDW_EMAIL_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -1428,7 +1530,7 @@ def _send_email_via_metis(html_content: str, model_name: str, table_name: str) -
             "Priority": "P3",
             "Assignee": "reviewers"
         }
-
+        logger.info(f"邮件推送html: {html_content}")
         # 创建邮件参数对象
         email_param_obj = EmailParam(email_params)
 
@@ -1587,17 +1689,17 @@ async def _create_confluence_documentation(table_name: str, model_name: str,
         final_model_name = model_name or table.replace('_', ' ').title()
 
         # 构建标题，避免特殊字符和长度问题
-        base_title = f"{current_date}: {domain} {final_model_name} {operation_type}"
+        base_title = f"{current_date}:Finance Data Model Review - {final_model_name} {operation_type}"
         ai_suffix = " [AI Generated]"
 
         # 确保标题不超过Confluence限制（通常是255字符，保留一些余量）
         max_length = 200
         if len(base_title) + len(ai_suffix) > max_length:
             # 截断model_name部分
-            available_for_name = max_length - len(f"{current_date}: {domain}  {operation_type}") - len(ai_suffix)
+            available_for_name = max_length - len(f"{current_date}:Finance Data Model Review -  {operation_type}") - len(ai_suffix)
             if available_for_name > 10:
                 final_model_name = final_model_name[:available_for_name - 3] + "..."
-                base_title = f"{current_date}: {domain} {final_model_name} {operation_type}"
+                base_title = f"{current_date}:Finance Data Model Review - {final_model_name} {operation_type}"
 
         final_title = base_title + ai_suffix
         logger.info(f"创建Confluence页面标题: {final_title} (长度: {len(final_title)})")
@@ -2048,6 +2150,7 @@ model_dev_graph = (
     .add_node("model_add_data_validation_node", edw_model_add_data_validation_node)
     .add_node("model_enhance_node", edw_model_enhance_node)
     .add_node("model_addition_node", edw_model_addition_node)
+    .add_node("github_push_node", github_push_node)  # 新增GitHub推送节点
     .add_node("adb_update_node", edw_adb_update_node)
     .add_node("email_node", edw_email_node)
     .add_node("confluence_node", edw_confluence_node)
@@ -2062,8 +2165,9 @@ model_dev_graph = (
     ])
     .add_edge("model_add_data_validation_node", "model_addition_node")
     # 修改为条件路由：根据增强类型决定是否需要走后续流程
-    .add_conditional_edges("model_enhance_node", enhancement_routing_fun, ["adb_update_node", END])
-    .add_edge("model_addition_node", "adb_update_node")
+    .add_conditional_edges("model_enhance_node", enhancement_routing_fun, ["github_push_node", END])
+    .add_edge("model_addition_node", "github_push_node")  # 模型新增也要推送到GitHub
+    .add_edge("github_push_node", "adb_update_node")  # GitHub推送后再更新ADB
     .add_edge("adb_update_node", "confluence_node")
     .add_edge("confluence_node", "email_node")
     .add_edge("email_node", END)

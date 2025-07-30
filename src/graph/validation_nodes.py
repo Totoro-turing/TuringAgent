@@ -13,11 +13,9 @@ from datetime import datetime
 
 from src.agent.edw_agents import get_validation_agent, get_shared_parser
 from src.models.edw_models import ModelEnhanceRequest, FieldDefinition
-from src.config import get_config_manager
 from src.models.validation_state import ValidationState
 
 logger = logging.getLogger(__name__)
-config_manager = get_config_manager()
 valid_agent = get_validation_agent()
 parser = get_shared_parser()
 
@@ -158,8 +156,10 @@ def validate_model_name_node(state: ValidationState) -> dict:
             
             if create_table_result and "错误" not in create_table_result:
                 # 使用正则表达式提取表级 COMMENT
-                # 匹配模式: COMMENT 'xxx' 在 USING 或 TBLPROPERTIES 之前
-                comment_pattern = r"COMMENT\s+['\"]([^'\"]+)['\"](?:\s+USING|\s+TBLPROPERTIES)"
+                # ultrathink 项目只有两种情况:
+                # 1. USING delta 后直接跟 COMMENT
+                # 2. USING delta 后跟 PARTITIONED BY (字段)，然后是 COMMENT
+                comment_pattern = r"USING\s+\w+(?:\s+PARTITIONED\s+BY\s+\([^)]+\))?\s*\n?\s*COMMENT\s+['\"]([^'\"]+)['\"]"
                 match = re.search(comment_pattern, create_table_result, re.IGNORECASE | re.DOTALL)
                 
                 if match:
