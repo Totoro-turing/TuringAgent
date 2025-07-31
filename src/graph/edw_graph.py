@@ -991,7 +991,7 @@ async def _run_code_enhancement(table_name: str, source_code: str, adb_code_path
 ```
 
 请按以下步骤执行：
-1. 使用execute_sql工具查询目标表 {table_name} 的结构信息，并提取表结构中表的comment信息
+1. 使用execute_sql工具查询目标表 {table_name} 的结构信息
 2. 对源代码的底表使用execute_sql工具查询表结构，用于推断新字段的数据类型
 3. 生成增强后的{code_type_desc}代码、新建表DDL和ALTER语句
 
@@ -999,8 +999,7 @@ async def _run_code_enhancement(table_name: str, source_code: str, adb_code_path
 {{
   "enhanced_code": "增强后的{code_type_desc}代码",
   "new_table_ddl": "包含新字段的完整CREATE TABLE语句",
-  "alter_statements": "ALTER TABLE语句",
-  "table_comment":"表comment"
+  "alter_statements": "ALTER TABLE语句"
 }}"""
 
 
@@ -1142,23 +1141,16 @@ def edw_model_enhance_node(state: EDWState):
 
         if enhancement_result.get("success"):
 
-            # 验证从表comment提取的模型名称格式
-            table_comment_model_name = enhancement_result.get("table_comment", "")
-            validated_model_name = table_comment_model_name
-
-            if table_comment_model_name:
-                is_valid_comment_name, comment_name_error = _validate_english_model_name(table_comment_model_name)
-                if not is_valid_comment_name:
-                    logger.warning(f"表comment中的模型名称格式不符合标准: {comment_name_error}")
-                    # 不阻止流程继续，但记录警告
-                    validated_model_name = ""
+            # 直接使用从数据校验节点传递过来的模型名称
+            model_name = state.get("model_attribute_name", "")
+            logger.info(f"使用数据校验节点提取的模型名称: {model_name}")
 
             return {
                 "user_id": user_id,
                 "enhance_code": enhancement_result.get("enhanced_code"),
                 "create_table_sql": enhancement_result.get("new_table_ddl"),
                 "alter_table_sql": enhancement_result.get("alter_statements"),
-                "model_name": validated_model_name,  # 验证后的模型名称（从表comment提取）
+                "model_name": model_name,  # 使用数据校验节点提取的模型名称
                 "field_mappings": enhancement_result.get("field_mappings"),
                 "enhancement_type": enhancement_type,  # 保留增强类型供路由使用
                 "enhancement_summary": {
@@ -2137,7 +2129,7 @@ def enhancement_routing_fun(state: EDWState):
 
     # 其他类型继续走完整流程
     logger.info(f"增强类型 {enhancement_type}，继续执行完整流程")
-    return "adb_update_node"
+    return "github_push_node"
 
 
 # 创建验证子图实例

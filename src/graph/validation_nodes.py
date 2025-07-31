@@ -81,13 +81,17 @@ def parse_user_input_node(state: ValidationState) -> dict:
                 "validation_status": "processing",
                 "parsed_request": parsed_data,
                 "table_name": parsed_request.table_name if parsed_request.table_name else "",
-                "model_attribute_name": parsed_request.model_attribute_name,
+                "model_attribute_name": parsed_request.model_attribute_name if state.get('model_attribute_name') == '' else state.get('model_attribute_name'),
                 "enhancement_type": parsed_request.enhancement_type,
                 "logic_detail": parsed_request.logic_detail,
                 "business_purpose": parsed_request.business_purpose,
                 "business_requirement": parsed_request.business_requirement,
                 "field_info": parsed_request.field_info,
-                "fields": [field.model_dump() for field in parsed_request.fields] if parsed_request.fields else []
+                "fields": [field.model_dump() for field in parsed_request.fields] if parsed_request.fields else [],
+                # 🔥 清理错误信息，避免残留
+                "error_message": None,
+                "failed_validation_node": None,
+                "missing_info": None
             }
             
             # 🎯 智能路由：根据之前失败的节点决定下一步跳转
@@ -185,7 +189,13 @@ def validate_model_name_node(state: ValidationState) -> dict:
             }
         else:
             # 没有表名，跳过验证
-            return {"validation_status": "processing"}
+            return {
+                "validation_status": "processing",
+                # 🔥 清理错误信息，避免残留
+                "error_message": None,
+                "failed_validation_node": None,
+                "missing_info": None
+            }
     
     # 统一验证模型名称格式（无论是用户提供的还是从表中提取的）
     is_valid_name, name_error = _validate_english_model_name(model_attribute_name)
@@ -205,7 +215,13 @@ def validate_model_name_node(state: ValidationState) -> dict:
         }
     
     # 验证通过，返回成功状态
-    result = {"validation_status": "processing"}
+    result = {
+        "validation_status": "processing",
+        # 🔥 清理错误信息，避免残留
+        "error_message": None,
+        "failed_validation_node": None,
+        "missing_info": None
+    }
     
     # 如果是从表中提取的，更新状态
     if model_name_source == "table_comment":
@@ -268,7 +284,13 @@ def validate_completeness_node(state: ValidationState) -> dict:
                 "messages": [HumanMessage(complete_message)]
             }
         
-        return {"validation_status": "processing"}
+        return {
+            "validation_status": "processing",
+            # 🔥 清理错误信息，避免残留
+            "error_message": None,
+            "failed_validation_node": None,
+            "missing_info": None
+        }
         
     except Exception as e:
         error_msg = f"验证信息完整性失败: {str(e)}"
@@ -336,7 +358,11 @@ def search_table_code_node(state: ValidationState) -> dict:
                 "table_code_info": code_info,
                 "adb_path": adb_path,
                 "base_tables": base_tables
-            }
+            },
+            # 🔥 清理错误信息，避免残留
+            "error_message": None,
+            "failed_validation_node": None,
+            "missing_info": None
         }
         
     except Exception as e:
@@ -366,7 +392,11 @@ async def validate_field_base_tables_node(state: ValidationState) -> dict:
         logger.info("未找到底表或新增字段为空，跳过字段验证")
         return {
             "validation_status": "completed",
-            "session_state": "validation_completed"
+            "session_state": "validation_completed",
+            # 🔥 清理错误信息，避免残留
+            "error_message": None,
+            "failed_validation_node": None,
+            "missing_info": None
         }
     
     # 验证新增字段与底表的关联性
@@ -442,7 +472,11 @@ async def validate_field_base_tables_node(state: ValidationState) -> dict:
             return {
                 "validation_status": "completed",
                 "field_validation": field_validation,
-                "session_state": "validation_completed"
+                "session_state": "validation_completed",
+                # 🔥 清理错误信息，避免残留
+                "error_message": None,
+                "failed_validation_node": None,
+                "missing_info": None
             }
     
     except Exception as e:
