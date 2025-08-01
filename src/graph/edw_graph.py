@@ -9,13 +9,18 @@ from src.agent.edw_agents import (
     get_validation_agent,
     get_shared_llm,
     get_shared_parser,
-    get_shared_checkpointer
+    get_shared_checkpointer,
+    get_business_checkpointer,
+    get_interaction_checkpointer
 )
 # 适配器已移除，直接使用子图
 from src.models.edw_models import FieldDefinition, ModelEnhanceRequest
+from src.models.states import EDWState
 from src.cache import get_cache_manager
 from src.config import get_config_manager
 from langchain.prompts import PromptTemplate
+from langchain.chains.summarize import load_summarize_chain
+from langchain.docstore.document import Document
 from langgraph.graph import StateGraph, START, END
 from langgraph.config import get_stream_writer
 from langgraph.types import Command
@@ -82,6 +87,194 @@ class SessionManager:
                 "thread_id": thread_id
             }
         }
+
+
+# 通用总结回复提示词常量
+SUMMARY_REPLY_PROMPT = """你是一个专业的对话总结助手，负责分析用户与EDW系统的交互历史，生成简洁明了的总结。
+
+**任务要求**：
+1. 仔细分析提供的对话历史和上下文信息
+2. 提取关键信息：用户需求、系统回应、当前状态、遇到的问题
+3. 生成结构化的markdown格式总结
+4. 语言风格要友好、专业、易懂
+
+**上下文信息**：
+{context_info}
+
+**对话历史**：
+{conversation_history}
+
+**输出要求**：
+- 必须使用markdown格式
+- 包含关键信息的结构化展示
+- 突出当前状态和下一步行动
+- 如果有错误或问题，要明确指出
+- 总结长度控制在200-400字
+- 使用中文回复
+
+请生成对话总结："""
+
+
+def _extract_message_content(message) -> str:
+    """统一提取消息内容"""
+    if isinstance(message, str):
+        return message
+    elif hasattr(message, 'content'):
+        return message.content
+    else:
+        return str(message)
+
+
+def _build_context_info(state: EDWState) -> str:
+    """构建上下文信息字符串"""
+    context_parts = []
+    
+    # 基础信息
+    if state.get("table_name"):
+        context_parts.append(f"**目标表**: {state['table_name']}")
+    
+    if state.get("type"):
+        context_parts.append(f"**任务类型**: {state['type']}")
+    
+    # 状态信息
+    if state.get("status"):
+        context_parts.append(f"**当前状态**: {state['status']}")
+    
+    if state.get("status_message"):
+        context_parts.append(f"**状态消息**: {state['status_message']}")
+    
+    if state.get("error_message"):
+        context_parts.append(f"**遇到问题**: {state['error_message']}")
+    
+    # 业务信息
+    if state.get("logic_detail"):
+        context_parts.append(f"**需求描述**: {state['logic_detail']}")
+    
+    if state.get("fields"):
+        field_count = len(state['fields'])
+        context_parts.append(f"**新增字段数量**: {field_count}个")
+    
+    if state.get("enhancement_type"):
+        context_parts.append(f"**增强类型**: {state['enhancement_type']}")
+    
+    # 进展信息
+    if state.get("validation_status"):
+        context_parts.append(f"**验证状态**: {state['validation_status']}")
+    
+    if state.get("current_refinement_round"):
+        context_parts.append(f"**微调轮次**: 第{state['current_refinement_round']}轮")
+    
+    return "\n".join(context_parts) if context_parts else "无特殊上下文信息"
+
+
+def _format_conversation_history(messages: List) -> str:
+    """格式化对话历史为易读格式"""
+    if not messages:
+        return "无对话历史"
+    
+    formatted_messages = []
+    for i, message in enumerate(messages, 1):
+        content = _extract_message_content(message)
+        
+        # 确定消息来源
+        if isinstance(message, HumanMessage):
+            source = "用户"
+        elif isinstance(message, AIMessage):
+            source = "系统"
+        else:
+            source = "系统"
+        
+        # 限制单条消息长度
+        if len(content) > 200:
+            content = content[:200] + "..."
+        
+        formatted_messages.append(f"{i}. **{source}**: {content}")
+    
+    return "\n".join(formatted_messages)
+
+
+def _generate_summary_with_llm(context_info: str, conversation_history: str) -> str:
+    """使用LLM生成总结"""
+    try:
+        # 获取共享的LLM实例
+        llm = get_shared_llm()
+        
+        # 格式化提示词
+        prompt = SUMMARY_REPLY_PROMPT.format(
+            context_info=context_info,
+            conversation_history=conversation_history
+        )
+        
+        # 使用LLM生成总结
+        response = llm.invoke(prompt)
+        return response.content if hasattr(response, 'content') else str(response)
+        
+    except Exception as e:
+        logger.error(f"LLM总结生成失败: {e}")
+        return f"## 📋 对话总结\n\n生成总结时出现错误: {str(e)}\n\n### 基本信息\n{context_info}"
+
+
+def create_summary_reply(state: EDWState) -> str:
+    """
+    创建总结回复的独立方法
+    
+    Args:
+        state: EDW状态对象，包含messages等信息
+    
+    Returns:
+        markdown格式的总结回复
+    """
+    try:
+        # 提取消息历史
+        messages = state.get("messages", [])
+        
+        # 构建上下文信息
+        context_info = _build_context_info(state)
+        
+        # 处理对话历史
+        if len(messages) > 8:
+            # 消息较多时，使用LangChain summarize处理长对话
+            conversation_history = _summarize_long_conversation(messages)
+        else:
+            # 消息较少时，直接格式化
+            conversation_history = _format_conversation_history(messages)
+        
+        # 使用LLM生成总结
+        summary = _generate_summary_with_llm(context_info, conversation_history)
+        
+        logger.info(f"成功生成对话总结，消息数量: {len(messages)}")
+        return summary
+        
+    except Exception as e:
+        logger.error(f"创建总结回复失败: {e}")
+        return f"## 📋 对话总结\n\n生成总结时出现错误: {str(e)}"
+
+
+def _summarize_long_conversation(messages: List) -> str:
+    """使用LangChain处理长对话历史"""
+    try:
+        # 获取共享的LLM实例
+        llm = get_shared_llm()
+        
+        # 将消息转换为文档
+        docs = []
+        for i, message in enumerate(messages):
+            content = _extract_message_content(message)
+            source = "用户" if isinstance(message, HumanMessage) else "系统"
+            doc_content = f"{source}: {content}"
+            docs.append(Document(page_content=doc_content))
+        
+        # 使用LangChain的summarize chain
+        summarize_chain = load_summarize_chain(llm, chain_type="stuff")
+        summary = summarize_chain.run(docs)
+        
+        return f"**对话历史总结** (共{len(messages)}条消息):\n{summary}"
+        
+    except Exception as e:
+        logger.error(f"长对话总结失败: {e}")
+        # 回退到直接格式化最近的消息
+        recent_messages = messages[-5:] if len(messages) > 5 else messages
+        return _format_conversation_history(recent_messages)
 
 
 def extract_tables_from_code(code: str) -> list:
@@ -390,104 +583,9 @@ llm_agent = get_navigation_agent()
 chat_agent = get_chat_agent()
 valid_agent = get_validation_agent()
 
-# 全局代码增强智能体
-_global_code_enhancement_agent = None
-_global_enhancement_tools = None
-
-
-async def _get_global_code_enhancement_agent():
-    """获取全局的代码增强智能体（懒加载）"""
-    global _global_code_enhancement_agent, _global_enhancement_tools
-
-    if _global_code_enhancement_agent is None:
-        logger.info("正在初始化全局代码增强智能体...")
-
-        try:
-            # 获取MCP工具（只获取一次）
-            from src.mcp.mcp_client import get_mcp_tools
-            from src.agent.code_enhance_agent import CodeAnalysisTool
-
-            tools = []
-            try:
-                async with get_mcp_tools() as mcp_tools:
-                    if mcp_tools:
-                        tools.extend(mcp_tools)
-                        logger.info(f"全局agent获取到 {len(mcp_tools)} 个MCP工具")
-            except Exception as e:
-                logger.warning(f"全局agent MCP工具获取失败: {e}")
-
-            # 添加基础代码分析工具
-            tools.append(CodeAnalysisTool())
-            _global_enhancement_tools = tools
-
-            # 使用通用的系统提示词创建agent
-            system_prompt = config_manager.get_prompt("code_enhance_system_prompt")
-
-            # 创建全局的ReAct智能体
-            _global_code_enhancement_agent = create_react_agent(
-                model=get_shared_llm(),
-                tools=tools,
-                prompt=system_prompt,  # 使用系统级提示词
-                checkpointer=get_shared_checkpointer()
-            )
-
-            logger.info(f"全局代码增强智能体初始化成功，共 {len(tools)} 个工具")
-
-        except Exception as e:
-            logger.error(f"全局代码增强智能体初始化失败: {e}")
-            # 创建最简单的fallback agent
-            from src.agent.code_enhance_agent import CodeAnalysisTool
-            tools = [CodeAnalysisTool()]
-            _global_enhancement_tools = tools
-            _global_code_enhancement_agent = create_react_agent(
-                model=get_shared_llm(),
-                tools=tools,
-                prompt="你是一个代码增强助手。",
-                checkpointer=get_shared_checkpointer()
-            )
-
-    return _global_code_enhancement_agent, _global_enhancement_tools
+# 代码增强智能体现在通过 EDWAgentManager 统一管理
 
 # langgraph 做法
-
-
-# 统一的状态管理
-class EDWState(TypedDict):
-    """EDW系统统一状态管理"""
-    messages: Annotated[List[AnyMessage], add]
-    type: str  # 任务类型：other, model_enhance, model_add等
-    user_id: str  # 用户ID，用于会话隔离
-
-    # 模型开发相关信息
-    table_name: Optional[str]  # 表名
-    code_path: Optional[str]  # 代码路径
-    adb_code_path: Optional[str]  # ADB中的代码路径（从code_path转换而来）
-    source_code: Optional[str]  # 源代码
-    enhance_code: Optional[str]  # 增强后的代码
-    create_table_sql: Optional[str]  # 建表语句
-    alter_table_sql: Optional[str]  # 修改表语句
-    model_name: Optional[str]  # 模型名称（从表comment提取，必须为英文）
-    model_attribute_name: Optional[str]  # 用户输入的模型属性名称（英文）
-    business_purpose: Optional[str]  # 业务用途描述
-
-    # 信息收集相关
-    requirement_description: Optional[str]  # 需求描述
-    logic_detail: Optional[str]  # 逻辑详情
-    fields: Optional[List[dict]]  # 新增字段列表（每个字段包含physical_name, attribute_name等）
-    collected_info: Optional[dict]  # 已收集的信息
-    missing_info: Optional[List[str]]  # 缺失的信息列表
-
-    # Confluence文档相关
-    confluence_page_url: Optional[str]  # Confluence页面链接
-    confluence_page_id: Optional[str]  # Confluence页面ID
-    confluence_title: Optional[str]  # Confluence页面标题
-
-    # 会话状态
-    session_state: Optional[str]  # 当前会话状态
-    error_message: Optional[str]  # 错误信息
-    failed_validation_node: Optional[str]  # 错误节点
-    # 处理状态字段
-    validation_status: Optional[str]  # 验证状态：incomplete_info, completed, processing
 
 
 def navigate_node(state: EDWState):
@@ -555,7 +653,7 @@ def chat_node(state: EDWState):
     except Exception as e:
         error_msg = f"聊天节点处理失败: {str(e)}"
         logger.error(error_msg)
-        return {"messages": [HumanMessage("抱歉，我遇到了一些问题，请稍后再试。")], "error_message": error_msg}
+        return {"messages": [AIMessage("抱歉，我遇到了一些问题，请稍后再试。")], "error_message": error_msg}
 
 # 主要分配模型增强等相关工作
 
@@ -947,67 +1045,29 @@ def edw_model_add_data_validation_node(state: EDWState):
 
 
 # 主要进行模型增强等相关工作
-async def _run_code_enhancement(table_name: str, source_code: str, adb_code_path: str,
-                                fields: list, logic_detail: str, code_path: str = "") -> dict:
-    """异步执行代码增强的核心函数"""
+async def _execute_code_enhancement_task(enhancement_mode: str, **kwargs) -> dict:
+    """统一的代码增强执行引擎 - 支持不同模式的提示词"""
     try:
-
-        # 判断代码类型
-        file_path = code_path or adb_code_path or ""
-        if file_path.endswith('.sql'):
-            code_language = "sql"
-            code_type_desc = "SQL"
+        # 根据模式选择不同的提示词构建策略
+        if enhancement_mode == "initial_enhancement":
+            task_message = _build_initial_enhancement_prompt(**kwargs)
+        elif enhancement_mode == "refinement":
+            task_message = _build_refinement_prompt(**kwargs)
         else:
-            code_language = "python"
-            code_type_desc = "Python"
+            raise ValueError(f"不支持的增强模式: {enhancement_mode}")
 
-        # 获取全局的代码增强智能体（复用）
-        enhancement_agent, tools = await _get_global_code_enhancement_agent()
-
-        # 构造字段信息字符串
-        fields_info = []
-        for field in fields:
-            if isinstance(field, dict):
-                physical_name = field['physical_name']
-                attribute_name = field['attribute_name']
-            else:
-                physical_name = field.physical_name
-                attribute_name = field.attribute_name
-            fields_info.append(f"{physical_name} ({attribute_name})")
-
-        # 构造具体的任务消息（而不是修改agent的系统prompt）
-        task_message = f"""请为以下数据模型进行代码增强：
-
-**目标表**: {table_name}
-**代码类型**: {code_type_desc}
-**增强需求**: {logic_detail}
-
-**新增字段**:
-{chr(10).join(fields_info)}
-
-**源代码**:
-```{code_language.lower()}
-{source_code}
-```
-
-请按以下步骤执行：
-1. 使用execute_sql工具查询目标表 {table_name} 的结构信息
-2. 对源代码的底表使用execute_sql工具查询表结构，用于推断新字段的数据类型
-3. 生成增强后的{code_type_desc}代码、新建表DDL和ALTER语句
-
-最终请严格按照JSON格式返回：
-{{
-  "enhanced_code": "增强后的{code_type_desc}代码",
-  "new_table_ddl": "包含新字段的完整CREATE TABLE语句",
-  "alter_statements": "ALTER TABLE语句"
-}}"""
-
+        # 从智能体管理器获取代码增强智能体
+        from src.agent.edw_agents import get_code_enhancement_agent, get_code_enhancement_tools
+        enhancement_agent = get_code_enhancement_agent()
+        tools = get_code_enhancement_tools()
 
         # 使用配置管理器获取配置 - 为每个用户生成独立的thread_id
-        config = SessionManager.get_config("", f"enhancement_{table_name}")
+        table_name = kwargs.get("table_name", "unknown")
+        user_id = kwargs.get("user_id", "")
+        config = SessionManager.get_config(user_id, f"enhancement_{table_name}")
 
-        # 调用全局智能体执行增强任务
-        result = enhancement_agent.invoke(
+        # 调用全局智能体执行增强任务（异步调用以支持MCP工具）
+        result = await enhancement_agent.ainvoke(
             {"messages": [HumanMessage(task_message)]},
             config
         )
@@ -1017,18 +1077,18 @@ async def _run_code_enhancement(table_name: str, source_code: str, adb_code_path
         enhancement_result = _parse_agent_response(response_content)
 
         if enhancement_result.get("enhanced_code"):
-
-            logger.info(f"代码增强成功: {table_name}")
+            logger.info(f"代码增强成功 ({enhancement_mode}): {table_name}")
             return {
                 "success": True,
                 "enhanced_code": enhancement_result.get("enhanced_code"),
                 "new_table_ddl": enhancement_result.get("new_table_ddl"),
                 "alter_statements": enhancement_result.get("alter_statements"),
-                "table_comment": enhancement_result.get("table_comment"),  # 表comment（模型名称）
-                "field_mappings": fields
+                "table_comment": enhancement_result.get("table_comment"),
+                "optimization_summary": enhancement_result.get("optimization_summary", ""),
+                "field_mappings": kwargs.get("fields", [])
             }
         else:
-            error_msg = "智能体未能生成有效的增强代码"
+            error_msg = f"智能体未能生成有效的增强代码 ({enhancement_mode})"
             logger.error(error_msg)
             return {
                 "success": False,
@@ -1036,7 +1096,7 @@ async def _run_code_enhancement(table_name: str, source_code: str, adb_code_path
             }
 
     except Exception as e:
-        error_msg = f"执行代码增强时发生异常: {str(e)}"
+        error_msg = f"执行代码增强时发生异常 ({enhancement_mode}): {str(e)}"
         logger.error(error_msg)
         return {
             "success": False,
@@ -1044,7 +1104,108 @@ async def _run_code_enhancement(table_name: str, source_code: str, adb_code_path
         }
     finally:
         # MCP客户端使用上下文管理器，无需手动清理
-        logger.debug("代码增强任务完成")
+        logger.debug(f"代码增强任务完成 ({enhancement_mode})")
+
+
+def _build_initial_enhancement_prompt(table_name: str, source_code: str, adb_code_path: str,
+                                     fields: list, logic_detail: str, code_path: str = "", **kwargs) -> str:
+    """构建初始模型增强的提示词 - 完整流程"""
+    
+    # 判断代码类型
+    file_path = code_path or adb_code_path or ""
+    if file_path.endswith('.sql'):
+        code_language = "sql"
+        code_type_desc = "SQL"
+    else:
+        code_language = "python"
+        code_type_desc = "Python"
+
+    # 构造字段信息字符串
+    fields_info = []
+    for field in fields:
+        if isinstance(field, dict):
+            physical_name = field['physical_name']
+            attribute_name = field['attribute_name']
+        else:
+            physical_name = field.physical_name
+            attribute_name = field.attribute_name
+        fields_info.append(f"{physical_name} ({attribute_name})")
+
+    return f"""你是一个Databricks代码增强专家，负责为数据模型添加新字段。
+
+**任务目标**: 为表 {table_name} 创建增强版本的{code_type_desc}代码
+
+**增强需求**: {logic_detail}
+
+**新增字段**:
+{chr(10).join(fields_info)}
+
+**原始源代码**:
+```{code_language.lower()}
+{source_code}
+```
+
+**执行步骤**:
+1.  使用execute_sql工具查询目标表结构: `DESCRIBE {table_name}`
+2. 分析源代码中的底表，查询底表结构来推断新字段的数据类型
+3. 基于原始代码生成增强版本，确保新字段逻辑正确
+4. 生成完整的CREATE TABLE和ALTER TABLE语句
+
+**输出要求**: 严格按JSON格式返回
+{{
+    "enhanced_code": "完整的增强后{code_type_desc}代码",
+    "new_table_ddl": "包含新字段的CREATE TABLE语句", 
+    "alter_statements": "ADD COLUMN的ALTER语句"
+}}"""
+
+
+def _build_refinement_prompt(current_code: str, user_feedback: str, table_name: str,
+                           original_context: dict, **kwargs) -> str:
+    """构建代码微调的提示词 - 针对性优化"""
+    
+    return f"""你是一个代码优化专家，负责根据用户反馈修改AI生成的代码。
+**用户反馈**: "{user_feedback}"
+
+**优化指导原则**:
+1. 重点关注用户的具体反馈，精准响应用户需求
+2. 如需查询额外信息，可使用工具
+3. 优化可能包括：性能改进、代码可读性、异常处理、注释补充等、属性名称修改、字段顺序修改
+
+**注意事项**:
+- 不要重新设计整体架构，只做针对性改进
+- 保持与原代码的语言风格一致
+- 确保修改后的代码逻辑正确且可执行
+- ALTER语句如果有需要请重新生成，需满足alter table ** add column ** comment '' after '';
+
+**输出格式**: 严格按JSON格式返回
+{{
+    "enhanced_code": "优化后的代码",
+    "new_table_ddl": "CREATE TABLE语句（如有需要）",
+    "alter_statements": "ALTER语句（如有需要）",
+    "optimization_summary": "本次优化的具体改进点说明"
+}}"""
+
+
+def _format_fields_info(fields: list) -> str:
+    """格式化字段信息为字符串"""
+    if not fields:
+        return "无字段信息"
+    
+    fields_info = []
+    for field in fields:
+        if isinstance(field, dict):
+            name = field.get('physical_name', '')
+            attr = field.get('attribute_name', '')
+        else:
+            name = getattr(field, 'physical_name', '')
+            attr = getattr(field, 'attribute_name', '')
+        
+        if name and attr:
+            fields_info.append(f"{name} ({attr})")
+        elif name:
+            fields_info.append(name)
+    
+    return ', '.join(fields_info) if fields_info else "无字段信息"
 
 
 def _parse_agent_response(content: str) -> dict:
@@ -1106,7 +1267,7 @@ def edw_model_enhance_node(state: EDWState):
         table_name = state.get("table_name")
         source_code = state.get("source_code")
         adb_code_path = state.get("adb_code_path")
-        code_path = state.get("adb_code_path")
+        code_path = state.get("code_path")
         fields = state.get("fields", [])
         logic_detail = state.get("logic_detail")
         user_id = state.get("user_id", "")
@@ -1129,14 +1290,16 @@ def edw_model_enhance_node(state: EDWState):
             }
 
 
-        # 异步执行代码增强
-        enhancement_result = asyncio.run(_run_code_enhancement(
+        # 异步执行代码增强 - 使用重构后的通用函数
+        enhancement_result = asyncio.run(_execute_code_enhancement_task(
+            enhancement_mode="initial_enhancement",
             table_name=table_name,
             source_code=source_code,
             adb_code_path=adb_code_path,
             fields=fields,
             logic_detail=logic_detail,
-            code_path=code_path
+            code_path=code_path,
+            user_id=user_id
         ))
 
         if enhancement_result.get("success"):
@@ -1145,7 +1308,38 @@ def edw_model_enhance_node(state: EDWState):
             model_name = state.get("model_attribute_name", "")
             logger.info(f"使用数据校验节点提取的模型名称: {model_name}")
 
+            # 格式化增强结果为用户友好的消息
+            formatted_message = f"""## 🎉 代码增强完成
+
+**目标表**: {table_name}
+**新增字段**: {len(fields)} 个
+**增强类型**: {enhancement_type}
+**模型名称**: {model_name or '未指定'}
+
+### ✅ 生成的内容
+- 增强代码已生成
+- CREATE TABLE 语句已生成
+- ALTER TABLE 语句已生成
+
+### 📊 详细结果
+```json
+{json.dumps(enhancement_result, ensure_ascii=False, indent=2)}
+```
+
+### 📋 新增字段列表
+"""
+            # 添加字段详情
+            for field in fields:
+                if isinstance(field, dict):
+                    physical_name = field.get('physical_name', '')
+                    attribute_name = field.get('attribute_name', '')
+                else:
+                    physical_name = getattr(field, 'physical_name', '')
+                    attribute_name = getattr(field, 'attribute_name', '')
+                formatted_message += f"- {physical_name} ({attribute_name})\n"
+
             return {
+                "messages": [AIMessage(content=formatted_message)],  # 添加 AI 消息到状态
                 "user_id": user_id,
                 "enhance_code": enhancement_result.get("enhanced_code"),
                 "create_table_sql": enhancement_result.get("new_table_ddl"),
@@ -1187,9 +1381,270 @@ def edw_model_addition_node(state: EDWState):
     return {}
 
 
+# 微调相关节点
+def refinement_inquiry_node(state: EDWState):
+    """微调询问节点 - 展示代码并询问用户想法"""
+    
+    enhanced_code = state.get("enhance_code", "")
+    table_name = state.get("table_name", "")
+    user_id = state.get("user_id", "")
+    
+    # 构建友好的展示消息
+    display_message = f"""🎉 **代码增强完成！**
+请问您对这段代码有什么想法？您可以：
+- 说"看起来不错"或"可以了"表示满意
+- 提出具体的修改建议，如"能优化一下性能吗"
+- 或说其他任何想法
+"""
+    
+    from langgraph.types import interrupt
+    
+    # 使用interrupt等待用户输入
+    user_response = interrupt({
+        "prompt": display_message,
+        "action_type": "refinement_conversation"
+    })
+    
+    return {
+        "user_refinement_input": user_response,
+        "refinement_conversation_started": True,
+        "original_enhanced_code": enhanced_code,  # 备份原始代码
+        "current_refinement_round": 1,
+        "user_id": user_id
+    }
+
+
+def refinement_intent_node(state: EDWState):
+    """基于大语言模型的用户意图深度识别节点"""
+    
+    user_input = state.get("user_refinement_input", "")
+    user_id = state.get("user_id", "")
+    messages = state.get("messages", [])
+    
+    # 获取消息总结器和配置
+    from src.graph.message_summarizer import get_message_summarizer
+    from src.config import get_config_manager
+    
+    config_manager = get_config_manager()
+    message_config = config_manager.get_message_config()
+    
+    # 使用消息总结器处理消息历史
+    summarizer = get_message_summarizer()
+    try:
+        # 先进行消息总结（如果需要）
+        summarized_messages = summarizer.summarize_if_needed(messages)
+    except Exception as e:
+        logger.warning(f"消息总结失败，使用原始消息: {e}")
+    # 使用 LangChain 的 PydanticOutputParser
+    from langchain.output_parsers import PydanticOutputParser
+    from src.models.edw_models import RefinementIntentAnalysis
+    
+    parser = PydanticOutputParser(pydantic_object=RefinementIntentAnalysis)
+    
+    # 🎯 使用动态上下文的意图分析提示词
+    intent_analysis_prompt = f"""你是一个专业的用户意图分析专家，需要结合聊天历史的上下文深度理解用户对代码增强结果的真实想法和需求。
+
+**用户刚刚说**: "{user_input}"
+
+**任务**: 请深度分析用户的真实意图，考虑语义、情感、上下文等多个维度。
+
+**意图分类标准**:
+
+1. **REFINEMENT_NEEDED** - 用户希望对代码进行调整/改进
+   识别场景：
+   - 明确提出修改建议（如"能不能优化一下"、"这里逻辑有问题"）
+   - 表达不满意或疑虑（如"感觉性能不够好"、"这样写对吗"）
+   - 提出新的要求（如"能加个异常处理吗"、"可以添加注释吗"）
+   - 询问是否可以改进（如"还能更好吗"、"有没有别的写法"）
+
+2. **SATISFIED_CONTINUE** - 用户对结果满意，希望继续后续流程
+   识别场景：
+   - 表达满意（如"不错"、"可以"、"很好"、"满意"）
+   - 确认继续（如"继续吧"、"可以进行下一步"、"没问题"）
+   - 赞同认可（如"就这样"、"挺好的"、"符合预期"）
+
+3. **UNRELATED_TOPIC** - 用户说的内容与当前代码增强任务无关
+   识别场景：
+   - 日常闲聊（如"今天天气如何"、"你好"）
+   - 询问其他技术问题（如"Python怎么学"）
+   - 完全无关的话题
+
+**分析要求**:
+- 重点理解用户的**真实情感倾向**和**实际需求**
+- 考虑**语境和上下文**，不要只看字面意思
+- 对于模糊或间接的表达，要推断其深层含义
+- 如果用户表达含糊，倾向于理解为需要进一步沟通
+
+{parser.get_format_instructions()}
+"""
+
+    try:
+        # 使用专门的意图分析代理（无记忆）
+        from src.agent.edw_agents import create_intent_analysis_agent
+        
+        intent_agent = create_intent_analysis_agent()
+        
+        response = intent_agent.invoke(
+            {"messages": summarized_messages + [HumanMessage(intent_analysis_prompt)]}
+        )
+        
+        # 使用 LangChain parser 解析响应
+        analysis_content = response["messages"][-1].content
+        intent_result = parser.parse(analysis_content)
+        
+        logger.info(f"LLM意图分析结果: {intent_result}")
+        
+        result = {
+            "user_intent": intent_result.intent,
+            "intent_confidence": intent_result.confidence_score,
+            "intent_reasoning": intent_result.reasoning,
+            "refinement_requirements": intent_result.extracted_requirements,
+            "user_emotion": intent_result.user_emotion,
+            "suggested_response": intent_result.suggested_response,
+            "user_id": user_id
+        }
+        
+        # 准备要添加的消息列表
+        messages_to_add = []
+        
+        # 添加用户的最新输入
+        if user_input:
+            messages_to_add.append(HumanMessage(content=user_input))
+        
+        # 将意图分析结果格式化为用户友好的消息
+        intent_summary = f"📊 意图分析完成：{intent_result.intent} (置信度: {intent_result.confidence_score})"
+        # 如果消息被总结了，使用总结后的消息作为基础
+        if len(summarized_messages) != len(messages):
+            result["messages"] = summarized_messages + messages_to_add
+            logger.info(f"消息已总结：{len(messages)} -> {len(summarized_messages)} 条，添加用户输入")
+        else:
+            # 否则只添加用户输入
+            result["messages"] = messages_to_add
+        
+        return result
+        
+    except Exception as e:
+        # 解析失败时的优雅降级
+        logger.error(f"意图识别解析失败: {e}")
+        result = {
+            "user_intent": "SATISFIED_CONTINUE",  # 默认继续
+            "intent_confidence": 0.5,
+            "intent_reasoning": f"解析失败，使用默认判断: {str(e)}",
+            "refinement_requirements": "",
+            "user_emotion": "neutral",
+            "suggested_response": "",
+            "user_id": user_id
+        }
+        
+        # 即使解析失败，也要处理消息总结和用户输入
+        try:
+            summarized_messages = summarizer.summarize_if_needed(messages)
+            
+            # 准备要添加的消息列表
+            messages_to_add = []
+            
+            # 添加用户的最新输入
+            if user_input:
+                messages_to_add.append(HumanMessage(content=user_input))
+            
+            # 如果消息被总结了，使用总结后的消息作为基础
+            if len(summarized_messages) != len(messages):
+                result["messages"] = summarized_messages + messages_to_add
+                logger.info(f"消息已总结（异常处理）：{len(messages)} -> {len(summarized_messages)} 条，添加用户输入")
+            else:
+                # 否则只添加用户输入
+                result["messages"] = messages_to_add
+                
+        except Exception as summary_error:
+            logger.warning(f"异常处理中的消息总结也失败: {summary_error}")
+            # 至少保存用户输入
+            if user_input:
+                result["messages"] = [HumanMessage(content=user_input)]
+        
+        return result
+
+
+def code_refinement_node(state: EDWState):
+    """代码微调执行节点 - 复用增强引擎"""
+    
+    # 获取微调需求
+    refinement_requirements = state.get("refinement_requirements", "")
+    current_code = state.get("enhance_code", "")
+    table_name = state.get("table_name", "")
+    user_id = state.get("user_id", "")
+    
+    # 构建原始上下文信息
+    original_context = {
+        "logic_detail": state.get("logic_detail", ""),
+        "fields_info": _format_fields_info(state.get("fields", []))
+    }
+    
+    try:
+        # 使用微调模式的增强引擎
+        refinement_result = asyncio.run(_execute_code_enhancement_task(
+            enhancement_mode="refinement",
+            current_code=current_code,
+            user_feedback=refinement_requirements,
+            table_name=table_name,
+            original_context=original_context,
+            user_id=user_id
+        ))
+        
+        if refinement_result.get("success"):
+            # 更新微调轮次
+            current_round = state.get("current_refinement_round", 1)
+            
+            # 记录微调历史
+            refinement_history = state.get("refinement_history", [])
+            refinement_history.append({
+                "round": current_round,
+                "user_feedback": refinement_requirements,
+                "old_code": current_code[:200] + "...",
+                "optimization_summary": refinement_result.get("optimization_summary", ""),
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            return {
+                "enhance_code": refinement_result["enhanced_code"],  # 更新代码
+                "create_table_sql": refinement_result.get("new_table_ddl", state.get("create_table_sql")),
+                "alter_table_sql": refinement_result.get("alter_statements", state.get("alter_table_sql")),
+                "refinement_completed": True,
+                "current_refinement_round": current_round + 1,
+                "refinement_history": refinement_history,
+                "optimization_summary": refinement_result.get("optimization_summary", ""),
+                "user_id": user_id
+            }
+        else:
+            # 微调失败，使用原代码
+            error_msg = refinement_result.get("error", "微调失败")
+            logger.error(f"代码微调失败: {error_msg}")
+            
+            return {
+                "user_id": user_id,
+                "status": "error",
+                "status_message": f"代码微调失败: {error_msg}",
+                "status_details": {"refinement_result": refinement_result},
+                "error_message": error_msg  # 向后兼容
+            }
+            
+    except Exception as e:
+        error_msg = f"微调节点处理失败: {str(e)}"
+        logger.error(error_msg)
+        return {
+            "user_id": user_id,
+            "status": "error",
+            "status_message": error_msg,
+            "status_details": {"exception": str(e)},
+            "error_message": error_msg  # 向后兼容
+        }
+
+
+
+
 def github_push_node(state: EDWState):
     """将AI修改的代码推送到GitHub远程仓库"""
-    
+    logger.info("模拟更新github 成功")
+    return {}
     try:
         # 从状态中获取必要信息
         enhanced_code = state.get("enhance_code", "")  # 增强后的代码
@@ -1202,18 +1657,20 @@ def github_push_node(state: EDWState):
             error_msg = "缺少增强后的代码，无法推送到GitHub"
             logger.error(error_msg)
             return {
-                "github_push_status": "skipped",
-                "github_push_message": error_msg,
-                "user_id": user_id
+                "user_id": user_id,
+                "status": "skipped",
+                "status_message": error_msg,
+                "error_message": error_msg  # 向后兼容
             }
         
         if not code_path:
             error_msg = "缺少代码文件路径，无法推送到GitHub"
             logger.error(error_msg)
             return {
-                "github_push_status": "skipped", 
-                "github_push_message": error_msg,
-                "user_id": user_id
+                "user_id": user_id,
+                "status": "skipped",
+                "status_message": error_msg,
+                "error_message": error_msg  # 向后兼容
             }
         
         logger.info(f"准备将增强后的代码推送到GitHub: {code_path}")
@@ -1225,9 +1682,11 @@ def github_push_node(state: EDWState):
             error_msg = f"初始化GitHub工具失败: {str(e)}"
             logger.error(error_msg)
             return {
-                "github_push_status": "error",
-                "github_push_error": error_msg,
-                "user_id": user_id
+                "user_id": user_id,
+                "status": "error",
+                "status_message": error_msg,
+                "status_details": {"exception": str(e)},
+                "error_message": error_msg  # 向后兼容
             }
         
         # 推送代码到GitHub
@@ -1244,48 +1703,64 @@ def github_push_node(state: EDWState):
             
             # 检查推送结果
             if result.get("status") == "success":
-                logger.info(f"成功推送代码到GitHub: {result}")
+                success_msg = f"成功推送代码到GitHub: {table_name}"
+                logger.info(success_msg)
                 
                 return {
-                    "github_push_status": "success",
-                    "github_push_result": result,
+                    "user_id": user_id,
+                    "status": "success",
+                    "status_message": success_msg,
+                    "status_details": {
+                        "commit_sha": result.get("commit", {}).get("sha", ""),
+                        "commit_url": result.get("commit", {}).get("url", ""),
+                        "file_url": result.get("file", {}).get("url", ""),
+                        "table_name": table_name,
+                        "code_path": code_path
+                    },
+                    # 保留这些字段供后续节点使用
                     "github_commit_sha": result.get("commit", {}).get("sha", ""),
                     "github_commit_url": result.get("commit", {}).get("url", ""),
-                    "github_file_url": result.get("file", {}).get("url", ""),
-                    "user_id": user_id
+                    "github_file_url": result.get("file", {}).get("url", "")
                 }
             elif result.get("status") == "no_change":
-                logger.info("代码内容未发生变化，无需推送")
+                info_msg = "代码内容未发生变化，无需推送"
+                logger.info(info_msg)
                 return {
-                    "github_push_status": "no_change",
-                    "github_push_message": "代码内容未发生变化",
-                    "user_id": user_id
+                    "user_id": user_id,
+                    "status": "no_change",
+                    "status_message": info_msg
                 }
             else:
                 error_msg = result.get("message", "GitHub推送失败")
                 logger.error(f"GitHub推送失败: {error_msg}")
                 return {
-                    "github_push_status": "error",
-                    "github_push_error": error_msg,
-                    "user_id": user_id
+                    "user_id": user_id,
+                    "status": "error",
+                    "status_message": f"推送失败: {error_msg}",
+                    "status_details": {"result": result},
+                    "error_message": error_msg  # 向后兼容
                 }
                 
         except Exception as e:
             error_msg = f"推送到GitHub时发生异常: {str(e)}"
             logger.error(error_msg)
             return {
-                "github_push_status": "error",
-                "github_push_error": error_msg,
-                "user_id": user_id
+                "user_id": user_id,
+                "status": "error",
+                "status_message": error_msg,
+                "status_details": {"exception": str(e), "code_path": code_path},
+                "error_message": error_msg  # 向后兼容
             }
             
     except Exception as e:
         error_msg = f"GitHub推送节点处理失败: {str(e)}"
         logger.error(error_msg)
         return {
-            "github_push_status": "error",
-            "github_push_error": error_msg,
-            "user_id": state.get("user_id", "")
+            "user_id": state.get("user_id", ""),
+            "status": "error",
+            "status_message": error_msg,
+            "status_details": {"exception": str(e)},
+            "error_message": error_msg  # 向后兼容
         }
 
 
@@ -1314,7 +1789,7 @@ EDW_EMAIL_HTML_TEMPLATE = """
             overflow: hidden;
         }}
         .header {{
-            background: linear-gradient(135deg, #0078d4, #106ebe);
+            background: #0078d4;
             color: white;
             padding: 20px;
             text-align: center;
@@ -1964,7 +2439,7 @@ def _detect_code_language(code_path: str, source_code: str = "") -> str:
     """检测代码语言"""
     if code_path:
         if code_path.endswith('.sql'):
-            return 'SCALA'  # Databricks SQL笔记本通常使用SCALA语言标识
+            return 'SQL'  # Databricks SQL笔记本通常使用SCALA语言标识
         elif code_path.endswith('.py'):
             return 'PYTHON'
         elif code_path.endswith('.scala'):
@@ -2127,9 +2602,37 @@ def enhancement_routing_fun(state: EDWState):
         logger.info("检测到仅修改逻辑，跳过ADB更新等后续流程")
         return END
 
-    # 其他类型继续走完整流程
-    logger.info(f"增强类型 {enhancement_type}，继续执行完整流程")
-    return "github_push_node"
+    # 其他类型进入微调询问流程
+    logger.info(f"增强类型 {enhancement_type}，进入微调询问流程")
+    return "refinement_inquiry_node"
+
+
+def refinement_loop_routing(state: EDWState):
+    """基于LLM分析结果的智能循环路由"""
+    
+    user_intent = state.get("user_intent", "SATISFIED_CONTINUE")
+    intent_confidence = state.get("intent_confidence", 0.5)
+    
+    logger.info(f"微调路由决策 - 意图: {user_intent}, 置信度: {intent_confidence}")
+    
+    # 高置信度的意图识别
+    if intent_confidence >= 0.8:
+        if user_intent == "REFINEMENT_NEEDED":
+            return "code_refinement_node"
+        elif user_intent in ["SATISFIED_CONTINUE", "UNRELATED_TOPIC"]:
+            return "github_push_node"
+    
+    # 低置信度情况下的保守策略
+    elif intent_confidence >= 0.6:
+        if user_intent == "REFINEMENT_NEEDED":
+            return "code_refinement_node"  # 倾向于响应用户需求
+        else:
+            return "github_push_node"
+    
+    # 极低置信度，默认继续流程
+    else:
+        logger.warning(f"意图识别置信度过低 ({intent_confidence})，默认继续流程")
+        return "github_push_node"
 
 
 # 创建验证子图实例
@@ -2138,26 +2641,47 @@ validation_subgraph = create_validation_subgraph()
 model_dev_graph = (
     StateGraph(EDWState)
     .add_node("model_enhance_data_validation_node", validation_subgraph)
-    .add_node("validation_check_node", validation_check_node)  # 新增验证检查节点
+    .add_node("validation_check_node", validation_check_node)  # 验证检查节点
     .add_node("model_add_data_validation_node", edw_model_add_data_validation_node)
     .add_node("model_enhance_node", edw_model_enhance_node)
     .add_node("model_addition_node", edw_model_addition_node)
-    .add_node("github_push_node", github_push_node)  # 新增GitHub推送节点
+    # 新增微调相关节点
+    .add_node("refinement_inquiry_node", refinement_inquiry_node)       # 微调询问节点
+    .add_node("refinement_intent_node", refinement_intent_node)         # 意图识别节点  
+    .add_node("code_refinement_node", code_refinement_node)             # 微调执行节点
+    # 原有后续节点
+    .add_node("github_push_node", github_push_node)
     .add_node("adb_update_node", edw_adb_update_node)
     .add_node("email_node", edw_email_node)
     .add_node("confluence_node", edw_confluence_node)
+    
+    # 路由配置
     .add_conditional_edges(START, model_routing_fun, ["model_enhance_data_validation_node", "model_add_data_validation_node"])
     # 验证子图完成后进入检查节点
     .add_edge("model_enhance_data_validation_node", "validation_check_node")
     # 从检查节点出来后的条件路由
     .add_conditional_edges("validation_check_node", route_after_validation_check, [
         "model_enhance_node",               # 验证通过，继续
-        "model_enhance_data_validation_node", # 需要重试
+        "model_enhance_data_validation_node",  # 需要重试
         END                                  # 其他情况结束
     ])
     .add_edge("model_add_data_validation_node", "model_addition_node")
-    # 修改为条件路由：根据增强类型决定是否需要走后续流程
-    .add_conditional_edges("model_enhance_node", enhancement_routing_fun, ["github_push_node", END])
+    
+    # 🎯 增强完成后进入微调流程
+    .add_conditional_edges("model_enhance_node", enhancement_routing_fun, [
+        "refinement_inquiry_node",          # 进入微调询问
+        END                                 # 仅修改逻辑直接结束
+    ])
+    
+    # 🔄 微调循环流程
+    .add_edge("refinement_inquiry_node", "refinement_intent_node")      # 询问→意图识别
+    .add_conditional_edges("refinement_intent_node", refinement_loop_routing, [
+        "code_refinement_node",             # 需要微调
+        "github_push_node"                  # 满意，继续后续流程
+    ])
+    .add_edge("code_refinement_node", "refinement_inquiry_node")        # 微调完成→再次询问（形成循环）
+    
+    # 原有后续流程保持不变
     .add_edge("model_addition_node", "github_push_node")  # 模型新增也要推送到GitHub
     .add_edge("github_push_node", "adb_update_node")  # GitHub推送后再更新ADB
     .add_edge("adb_update_node", "confluence_node")
@@ -2233,6 +2757,25 @@ if __name__ == "__main__":
         logger.info(f"缓存系统已启动 - TTL: {stats['ttl_seconds']}秒, 最大条目: {stats['max_entries']}")
     else:
         logger.info("缓存系统已禁用")
+    
+    # 异步初始化智能体（包括代码增强智能体）
+    async def initialize_system():
+        """异步初始化系统组件"""
+        try:
+            from src.agent.edw_agents import async_initialize_agents
+            await async_initialize_agents()
+            logger.info("系统异步初始化完成")
+        except Exception as e:
+            logger.error(f"系统异步初始化失败: {e}")
+            # 即使失败也继续运行，代码增强功能可能不可用
+    
+    # 运行异步初始化
+    try:
+        asyncio.run(initialize_system())
+    except Exception as e:
+        logger.error(f"异步初始化运行失败: {e}")
+        print("警告: 代码增强功能可能不可用")
+    
     index = 0
     
     # 定义处理输出的函数，避免代码重复

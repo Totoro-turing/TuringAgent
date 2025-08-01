@@ -2,7 +2,7 @@
 EDW系统数据模型定义
 """
 
-from typing import List, Optional
+from typing import List, Optional, Literal
 from pydantic import BaseModel, Field
 
 
@@ -52,3 +52,30 @@ class ModelEnhanceRequest(BaseModel):
                             missing_info.append(f"第{i + 1}个字段的属性名称")
 
         return len(missing_info) == 0, missing_info
+
+
+class RefinementIntentAnalysis(BaseModel):
+    """微调意图识别分析结果模型"""
+    intent: Literal["REFINEMENT_NEEDED", "SATISFIED_CONTINUE", "UNRELATED_TOPIC"] = Field(
+        description="用户意图分类"
+    )
+    confidence_score: float = Field(
+        description="意图识别置信度 (0.0-1.0)",
+        ge=0.0,
+        le=1.0
+    )
+    reasoning: str = Field(
+        description="详细说明分析推理过程"
+    )
+    extracted_requirements: Optional[str] = Field(
+        description="如果是REFINEMENT_NEEDED，提取用户的具体需求和期望",
+        default=""
+    )
+    user_emotion: Literal["positive", "neutral", "negative", "uncertain"] = Field(
+        description="用户情感倾向",
+        default="neutral"
+    )
+    suggested_response: Optional[str] = Field(
+        description="建议对用户的回复内容",
+        default=""
+    )

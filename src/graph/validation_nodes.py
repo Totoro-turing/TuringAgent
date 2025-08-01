@@ -13,7 +13,7 @@ from datetime import datetime
 
 from src.agent.edw_agents import get_validation_agent, get_shared_parser
 from src.models.edw_models import ModelEnhanceRequest, FieldDefinition
-from src.models.validation_state import ValidationState
+from src.models.states import ValidationState
 
 logger = logging.getLogger(__name__)
 valid_agent = get_validation_agent()

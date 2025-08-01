@@ -41,12 +41,21 @@ class SystemConfig:
     request_timeout: int = 120
 
 @dataclass
+class MessageManagementConfig:
+    """消息管理配置"""
+    summary_enabled: bool = True
+    summary_threshold: int = 20
+    keep_recent_count: int = 5
+    max_context_length: int = 10
+
+@dataclass
 class EDWConfig:
     """EDW系统完整配置"""
     mcp_servers: Dict[str, MCPServerConfig] = field(default_factory=dict)
     cache: CacheConfig = field(default_factory=CacheConfig)
     validation: ValidationConfig = field(default_factory=ValidationConfig)
     system: SystemConfig = field(default_factory=SystemConfig)
+    message_management: MessageManagementConfig = field(default_factory=MessageManagementConfig)
     prompts: Dict[str, str] = field(default_factory=dict)
     
 class ConfigManager:
@@ -103,6 +112,12 @@ class ConfigManager:
                 thread_id_length=16,
                 max_retry_attempts=3,
                 request_timeout=120
+            ),
+            message_management=MessageManagementConfig(
+                summary_enabled=os.getenv("EDW_SUMMARY_ENABLED", "true").lower() == "true",
+                summary_threshold=int(os.getenv("EDW_SUMMARY_THRESHOLD", "20")),
+                keep_recent_count=int(os.getenv("EDW_KEEP_RECENT_COUNT", "5")),
+                max_context_length=int(os.getenv("EDW_MAX_CONTEXT_LENGTH", "10"))
             ),
             prompts=self._get_default_prompts()
         )
@@ -317,6 +332,11 @@ class ConfigManager:
         """获取系统配置"""
         config = self.load_config()
         return config.system
+    
+    def get_message_config(self) -> MessageManagementConfig:
+        """获取消息管理配置"""
+        config = self.load_config()
+        return config.message_management
     
     def get_prompt(self, prompt_name: str) -> str:
         """获取提示词模板"""
