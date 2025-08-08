@@ -1,0 +1,292 @@
+# EDW属性名称知识库
+# 定义标准的属性命名规范和常用属性映射
+
+# 命名规范
+naming_conventions:
+  general_rules:
+    - 使用帕斯卡命名法（Pascal Case）
+    - 每个单词首字母大写
+    - 不使用下划线或连字符
+    - 避免缩写，使用完整单词
+    - 保持简洁明了
+    - 使用业务术语而非技术术语
+  
+  examples:
+    good:
+      - InvoiceNumber
+      - CustomerName
+      - TransactionDate
+      - ProductCategory
+    bad:
+      - invoice_number
+      - cust_nm
+      - trans_dt
+      - prod_cat
+
+# 常用属性映射表
+common_attributes:
+  # 财务相关
+  finance:
+    invoice:
+      - physical: invoice_no
+        standard: InvoiceNumber
+        chinese: 发票号码
+        score: 95
+      - physical: invoice_doc_no
+        standard: InvoiceDocumentNumber
+        chinese: 发票单据编号
+        score: 90
+      - physical: invoice_date
+        standard: InvoiceDate
+        chinese: 发票日期
+        score: 95
+      - physical: invoice_amount
+        standard: InvoiceAmount
+        chinese: 发票金额
+        score: 95
+      - physical: invoice_status
+        standard: InvoiceStatus
+        chinese: 发票状态
+        score: 95
+    
+    payment:
+      - physical: payment_no
+        standard: PaymentNumber
+        chinese: 付款编号
+        score: 95
+      - physical: payment_date
+        standard: PaymentDate
+        chinese: 付款日期
+        score: 95
+      - physical: payment_amount
+        standard: PaymentAmount
+        chinese: 付款金额
+        score: 95
+      - physical: payment_method
+        standard: PaymentMethod
+        chinese: 付款方式
+        score: 95
+    
+    general:
+      - physical: amount
+        standard: Amount
+        chinese: 金额
+        score: 90
+      - physical: currency
+        standard: CurrencyCode
+        chinese: 币种
+        score: 95
+      - physical: exchange_rate
+        standard: ExchangeRate
+        chinese: 汇率
+        score: 95
+      - physical: tax_amount
+        standard: TaxAmount
+        chinese: 税额
+        score: 95
+
+  # 客户相关
+  customer:
+    - physical: customer_id
+      standard: CustomerId
+      chinese: 客户ID
+      score: 95
+    - physical: customer_name
+      standard: CustomerName
+      chinese: 客户名称
+      score: 95
+    - physical: customer_type
+      standard: CustomerType
+      chinese: 客户类型
+      score: 95
+    - physical: customer_status
+      standard: CustomerStatus
+      chinese: 客户状态
+      score: 95
+    - physical: customer_code
+      standard: CustomerCode
+      chinese: 客户代码
+      score: 95
+
+  # 产品相关
+  product:
+    - physical: product_id
+      standard: ProductId
+      chinese: 产品ID
+      score: 95
+    - physical: product_name
+      standard: ProductName
+      chinese: 产品名称
+      score: 95
+    - physical: product_code
+      standard: ProductCode
+      chinese: 产品代码
+      score: 95
+    - physical: product_category
+      standard: ProductCategory
+      chinese: 产品类别
+      score: 95
+    - physical: product_price
+      standard: ProductPrice
+      chinese: 产品价格
+      score: 95
+
+  # 订单相关
+  order:
+    - physical: order_no
+      standard: OrderNumber
+      chinese: 订单号
+      score: 95
+    - physical: order_date
+      standard: OrderDate
+      chinese: 订单日期
+      score: 95
+    - physical: order_amount
+      standard: OrderAmount
+      chinese: 订单金额
+      score: 95
+    - physical: order_status
+      standard: OrderStatus
+      chinese: 订单状态
+      score: 95
+    - physical: order_type
+      standard: OrderType
+      chinese: 订单类型
+      score: 95
+
+  # 时间相关
+  datetime:
+    - physical: create_date
+      standard: CreateDate
+      chinese: 创建日期
+      score: 95
+    - physical: update_date
+      standard: UpdateDate
+      chinese: 更新日期
+      score: 95
+    - physical: start_date
+      standard: StartDate
+      chinese: 开始日期
+      score: 95
+    - physical: end_date
+      standard: EndDate
+      chinese: 结束日期
+      score: 95
+    - physical: effective_date
+      standard: EffectiveDate
+      chinese: 生效日期
+      score: 95
+    - physical: expire_date
+      standard: ExpireDate
+      chinese: 失效日期
+      score: 95
+
+  # 组织相关
+  organization:
+    - physical: company_code
+      standard: CompanyCode
+      chinese: 公司代码
+      score: 95
+    - physical: department_name
+      standard: DepartmentName
+      chinese: 部门名称
+      score: 95
+    - physical: cost_center
+      standard: CostCenter
+      chinese: 成本中心
+      score: 95
+    - physical: profit_center
+      standard: ProfitCenter
+      chinese: 利润中心
+      score: 95
+    - physical: business_unit
+      standard: BusinessUnit
+      chinese: 业务单元
+      score: 95
+
+  # 人员相关
+  person:
+    - physical: employee_id
+      standard: EmployeeId
+      chinese: 员工ID
+      score: 95
+    - physical: employee_name
+      standard: EmployeeName
+      chinese: 员工姓名
+      score: 95
+    - physical: manager_name
+      standard: ManagerName
+      chinese: 经理姓名
+      score: 95
+    - physical: user_id
+      standard: UserId
+      chinese: 用户ID
+      score: 95
+    - physical: user_name
+      standard: UserName
+      chinese: 用户名
+      score: 95
+
+  # 状态和标识
+  status:
+    - physical: status
+      standard: Status
+      chinese: 状态
+      score: 90
+    - physical: flag
+      standard: Flag
+      chinese: 标志
+      score: 85
+    - physical: is_active
+      standard: IsActive
+      chinese: 是否激活
+      score: 95
+    - physical: is_deleted
+      standard: IsDeleted
+      chinese: 是否删除
+      score: 95
+    - physical: is_valid
+      standard: IsValid
+      chinese: 是否有效
+      score: 95
+
+  # 系统字段
+  system:
+    - physical: created_by
+      standard: CreatedBy
+      chinese: 创建人
+      score: 95
+    - physical: updated_by
+      standard: UpdatedBy
+      chinese: 更新人
+      score: 95
+    - physical: record_id
+      standard: RecordId
+      chinese: 记录ID
+      score: 95
+    - physical: batch_no
+      standard: BatchNumber
+      chinese: 批次号
+      score: 95
+    - physical: version_no
+      standard: VersionNumber
+      chinese: 版本号
+      score: 95
+
+# 评分规则
+scoring_rules:
+  perfect_match: 100  # 完全匹配知识库
+  pascal_case: 90    # 符合帕斯卡命名法
+  camel_case: 80     # 驼峰命名法（减分）
+  snake_case: 60     # 下划线命名（大幅减分）
+  abbreviation: -10  # 使用缩写（扣分）
+  too_long: -5       # 名称过长（扣分）
+  unclear: -15       # 含义不清（扣分）
+
+# 建议生成规则
+suggestion_rules:
+  - 如果物理名称在知识库中有映射，优先推荐标准名称
+  - 如果是下划线命名，转换为帕斯卡命名法
+  - 如果使用了缩写，建议使用完整单词
+  - 如果名称过长，建议简化但保持清晰
+  - 结合业务上下文给出最佳建议

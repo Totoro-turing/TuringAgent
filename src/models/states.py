@@ -63,6 +63,22 @@ class EDWState(TypedDict):
     user_emotion: Optional[str]  # 用户情感倾向
     suggested_response: Optional[str]  # 建议回复内容
     
+    # 代码review相关字段
+    review_score: Optional[float]  # 代码评分(0-100)
+    review_feedback: Optional[str]  # review反馈
+    review_suggestions: Optional[List[str]]  # 改进建议列表
+    review_round: Optional[int]  # 当前review轮次
+    review_history: Optional[List[dict]]  # review历史记录
+    has_critical_issues: Optional[bool]  # 是否有严重问题
+    max_review_rounds: Optional[int]  # 最大review轮次(默认3)
+    
+    # 属性名称review相关字段
+    attribute_review_completed: Optional[bool]  # 属性review是否完成
+    attribute_review_results: Optional[List[dict]]  # 各字段的review结果
+    attribute_avg_score: Optional[float]  # 属性命名平均分
+    attribute_improvements_applied: Optional[bool]  # 是否应用了改进建议
+    attribute_suggestions: Optional[List[dict]]  # 属性名称改进建议
+    
     # 统一状态和消息字段 - 避免重复定义
     status: Optional[str]  # 节点执行状态：success, error, skipped, processing等
     status_message: Optional[str]  # 状态相关消息（成功、错误、警告等）

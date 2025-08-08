@@ -1,0 +1,18 @@
+# EDW系统精简配置
+# 只保留核心MCP连接配置
+
+# MCP服务器配置
+mcp:
+  url: "http://127.0.0.1:8000/sse"
+  transport: "sse"
+  
+# 环境变量
+env:
+  DATABRICKS_HOST: ""
+  DATABRICKS_TOKEN: ""
+
+# 基础设置
+settings:
+  log_level: "INFO"
+  similarity_threshold: 0.6
+  max_suggestions: 3
