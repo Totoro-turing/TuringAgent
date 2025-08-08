@@ -1,4 +1,6 @@
 from src.graph.validation_nodes import create_validation_subgraph
+from src.graph.review_nodes import create_review_subgraph
+from src.graph.attribute_review_nodes import create_attribute_review_subgraph
 from src.cache import init_cache_manager
 import time
 
@@ -1054,6 +1056,8 @@ async def _execute_code_enhancement_task(enhancement_mode: str, **kwargs) -> dic
             task_message = _build_initial_enhancement_prompt(**kwargs)
         elif enhancement_mode == "refinement":
             task_message = _build_refinement_prompt(**kwargs)
+        elif enhancement_mode == "review_improvement":
+            task_message = _build_review_improvement_prompt(**kwargs)
         else:
             raise ValueError(f"不支持的增强模式: {enhancement_mode}")
 
@@ -1184,6 +1188,50 @@ def _build_refinement_prompt(current_code: str, user_feedback: str, table_name: 
     "new_table_ddl": "CREATE TABLE语句（如有需要）",
     "alter_statements": "ALTER语句（如有需要）",
     "optimization_summary": "本次优化的具体改进点说明"
+}}"""
+
+
+def _build_review_improvement_prompt(improvement_prompt: str, **kwargs) -> str:
+    """构建基于review反馈的代码改进提示词"""
+    # 如果已经提供了完整的improvement_prompt，直接使用
+    if improvement_prompt:
+        return improvement_prompt
+    
+    # 否则构建默认的改进提示词
+    current_code = kwargs.get("current_code", "")
+    review_feedback = kwargs.get("review_feedback", "")
+    review_suggestions = kwargs.get("review_suggestions", [])
+    table_name = kwargs.get("table_name", "")
+    
+    suggestions_text = "\n".join([f"- {s}" for s in review_suggestions]) if review_suggestions else "无"
+    
+    return f"""你是一个代码质量改进专家，负责根据代码review反馈改进代码。
+
+**Review反馈**: {review_feedback}
+
+**改进建议**:
+{suggestions_text}
+
+**表名**: {table_name}
+
+**当前代码**:
+```python
+{current_code}
+```
+
+**改进要求**:
+1. 根据review反馈修复所有问题
+2. 实施所有合理的改进建议
+3. 保持代码功能不变
+4. 提升代码质量和可维护性
+5. 如需查询额外信息，可使用工具
+
+**输出格式**: 严格按JSON格式返回
+{{
+    "enhanced_code": "改进后的完整代码",
+    "new_table_ddl": "CREATE TABLE语句（如有变化）",
+    "alter_statements": "ALTER语句（如有变化）",
+    "optimization_summary": "本次改进的具体内容说明"
 }}"""
 
 
@@ -2583,8 +2631,8 @@ def route_after_validation_check(state: EDWState):
     validation_status = state.get("validation_status")
     
     if validation_status == "proceed":
-        # 验证通过，继续到增强节点
-        return "model_enhance_node"
+        # 验证通过，先进入属性review节点
+        return "attribute_review_subgraph"
     elif validation_status == "retry":
         # 需要重试，回到验证子图
         return "model_enhance_data_validation_node"
@@ -2602,9 +2650,9 @@ def enhancement_routing_fun(state: EDWState):
         logger.info("检测到仅修改逻辑，跳过ADB更新等后续流程")
         return END
 
-    # 其他类型进入微调询问流程
-    logger.info(f"增强类型 {enhancement_type}，进入微调询问流程")
-    return "refinement_inquiry_node"
+    # 其他类型先进入代码review流程
+    logger.info(f"增强类型 {enhancement_type}，进入代码review流程")
+    return "code_review_subgraph"
 
 
 def refinement_loop_routing(state: EDWState):
@@ -2638,13 +2686,22 @@ def refinement_loop_routing(state: EDWState):
 # 创建验证子图实例
 validation_subgraph = create_validation_subgraph()
 
+# 创建代码review子图实例
+review_subgraph = create_review_subgraph()
+
+# 创建属性名称review子图实例
+attribute_review_subgraph = create_attribute_review_subgraph()
+
 model_dev_graph = (
     StateGraph(EDWState)
     .add_node("model_enhance_data_validation_node", validation_subgraph)
     .add_node("validation_check_node", validation_check_node)  # 验证检查节点
     .add_node("model_add_data_validation_node", edw_model_add_data_validation_node)
+    .add_node("attribute_review_subgraph", attribute_review_subgraph)  # 属性名称review子图
     .add_node("model_enhance_node", edw_model_enhance_node)
     .add_node("model_addition_node", edw_model_addition_node)
+    # 新增代码review子图
+    .add_node("code_review_subgraph", review_subgraph)  # 代码review子图
     # 新增微调相关节点
     .add_node("refinement_inquiry_node", refinement_inquiry_node)       # 微调询问节点
     .add_node("refinement_intent_node", refinement_intent_node)         # 意图识别节点  
@@ -2661,17 +2718,22 @@ model_dev_graph = (
     .add_edge("model_enhance_data_validation_node", "validation_check_node")
     # 从检查节点出来后的条件路由
     .add_conditional_edges("validation_check_node", route_after_validation_check, [
-        "model_enhance_node",               # 验证通过，继续
+        "attribute_review_subgraph",        # 验证通过，进入属性review
         "model_enhance_data_validation_node",  # 需要重试
         END                                  # 其他情况结束
     ])
+    # 属性review完成后进入模型增强
+    .add_edge("attribute_review_subgraph", "model_enhance_node")
     .add_edge("model_add_data_validation_node", "model_addition_node")
     
-    # 🎯 增强完成后进入微调流程
+    # 🎯 增强完成后进入代码review流程
     .add_conditional_edges("model_enhance_node", enhancement_routing_fun, [
-        "refinement_inquiry_node",          # 进入微调询问
+        "code_review_subgraph",             # 进入代码review
         END                                 # 仅修改逻辑直接结束
     ])
+    
+    # 代码review完成后进入微调询问
+    .add_edge("code_review_subgraph", "refinement_inquiry_node")
     
     # 🔄 微调循环流程
     .add_edge("refinement_inquiry_node", "refinement_intent_node")      # 询问→意图识别
