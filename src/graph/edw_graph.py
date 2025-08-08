@@ -700,10 +700,11 @@ def edw_model_node(state: EDWState):
         return {"type": "error", "user_id": state.get("user_id", ""), "error_message": error_msg}
 
 
-def search_table_cd(table_name: str) -> dict:
+def search_table_cd(table_name: str, branch_name: str = None) -> dict:
     """
     查询某个表的源代码（支持GitHub和本地搜索切换）
     :param table_name: 必要参数，具体表名比如dwd_fi.fi_invoice_item
+    :param branch_name: 代码分支名称，如：main, dev, feature/xxx
     :return: 返回结果字典，包含状态和源代码信息
              成功时: {"status": "success", "code": "...", "table_name": "...", ...}
              失败时: {"status": "error", "message": "错误信息"}
@@ -713,8 +714,8 @@ def search_table_cd(table_name: str) -> dict:
     
     if use_github:
         try:
-            # 使用GitHub工具进行搜索
-            github_tool = GitHubTool()
+            # 使用GitHub工具进行搜索（传入分支参数）
+            github_tool = GitHubTool(branch=branch_name) if branch_name else GitHubTool()
             return github_tool.search_table_code(table_name)
         except Exception as e:
             logger.error(f"GitHub搜索失败: {e}")
@@ -1384,24 +1385,19 @@ def edw_model_addition_node(state: EDWState):
 # 微调相关节点
 def refinement_inquiry_node(state: EDWState):
     """微调询问节点 - 展示代码并询问用户想法"""
+    from langgraph.types import interrupt
+    from src.graph.contextual_prompt import generate_contextual_prompt
     
     enhanced_code = state.get("enhance_code", "")
     table_name = state.get("table_name", "")
     user_id = state.get("user_id", "")
     
-    # 构建友好的展示消息
-    display_message = f"""🎉 **代码增强完成！**
-请问您对这段代码有什么想法？您可以：
-- 说"看起来不错"或"可以了"表示满意
-- 提出具体的修改建议，如"能优化一下性能吗"
-- 或说其他任何想法
-"""
+    # 🔥 使用上下文感知生成询问
+    contextual_prompt = generate_contextual_prompt(state, "code_refinement")
     
-    from langgraph.types import interrupt
-    
-    # 使用interrupt等待用户输入
+    # 使用智能生成的提示进行中断
     user_response = interrupt({
-        "prompt": display_message,
+        "prompt": contextual_prompt,
         "action_type": "refinement_conversation"
     })
     
@@ -2541,6 +2537,7 @@ def model_routing_fun(state: EDWState):
 def validation_check_node(state: EDWState):
     """验证检查节点：处理验证状态并实施中断"""
     from langgraph.types import interrupt, Command
+    from src.graph.contextual_prompt import generate_contextual_prompt
     
     validation_status = state.get("validation_status")
     user_id = state.get("user_id", "")
@@ -2550,11 +2547,14 @@ def validation_check_node(state: EDWState):
         error_message = state.get("error_message", "需要补充信息")
         failed_node = state.get("failed_validation_node", "unknown")
         
-        logger.info(f"验证失败于节点: {failed_node}, 准备中断等待用户输入")
+        logger.info(f"验证失败于节点: {failed_node}, 准备生成上下文感知提示")
         
-        # 🔥 在节点中中断，等待用户补充信息
+        # 🔥 生成上下文感知的提示
+        contextual_prompt = generate_contextual_prompt(state, "validation_error")
+        
+        # 使用智能生成的提示进行中断
         user_input = interrupt({
-            "prompt": error_message,
+            "prompt": contextual_prompt,
             "failed_node": failed_node,
             "validation_status": "waiting_for_input"
         })

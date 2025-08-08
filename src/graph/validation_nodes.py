@@ -81,6 +81,7 @@ def parse_user_input_node(state: ValidationState) -> dict:
                 "validation_status": "processing",
                 "parsed_request": parsed_data,
                 "table_name": parsed_request.table_name if parsed_request.table_name else "",
+                "branch_name": parsed_request.branch_name if parsed_request.branch_name else "",
                 "model_attribute_name": parsed_request.model_attribute_name if state.get('model_attribute_name') == '' else state.get('model_attribute_name'),
                 "enhancement_type": parsed_request.enhancement_type,
                 "logic_detail": parsed_request.logic_detail,
@@ -249,6 +250,7 @@ def validate_completeness_node(state: ValidationState) -> dict:
         # 创建请求对象
         request = ModelEnhanceRequest(
             table_name=parsed_data.get("table_name", ""),
+            branch_name=parsed_data.get("branch_name", ""),
             enhancement_type=parsed_data.get("enhancement_type", ""),
             logic_detail=parsed_data.get("logic_detail", ""),
             field_info=parsed_data.get("field_info", ""),
@@ -311,6 +313,7 @@ def search_table_code_node(state: ValidationState) -> dict:
     from src.graph.edw_graph import search_table_cd, convert_to_adb_path, extract_tables_from_code
     
     table_name = state.get("table_name", "").strip()
+    branch_name = state.get("branch_name", "").strip()
     
     if not table_name:
         error_msg = "表名为空，无法查询源代码"
@@ -321,14 +324,23 @@ def search_table_code_node(state: ValidationState) -> dict:
             "messages": [HumanMessage(error_msg)]
         }
     
-    # 查询表的源代码
+    if not branch_name:
+        error_msg = "分支名称为空，无法查询源代码"
+        return {
+            "validation_status": "incomplete_info",
+            "failed_validation_node": "search_code",  # 🔥 记录失败节点
+            "error_message": error_msg,
+            "messages": [HumanMessage(error_msg)]
+        }
+    
+    # 查询表的源代码（传入分支名称）
     
     try:
-        code_info = search_table_cd(table_name)
+        code_info = search_table_cd(table_name, branch_name)
         logger.info(f"表代码查询结果: {str(code_info)[:200] if code_info else 'None'}...")
         
         if code_info.get("status") == "error":
-            error_msg = f"未找到表 {table_name} 的源代码: {code_info.get('message', '未知错误')}\n请确认表名是否正确。"
+            error_msg = f"在分支 {branch_name} 中未找到表 {table_name} 的源代码: {code_info.get('message', '未知错误')}\n请确认表名和分支名称是否正确。"
             
             return {
                 "validation_status": "incomplete_info",

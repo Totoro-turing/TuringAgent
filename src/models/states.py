@@ -18,6 +18,7 @@ class EDWState(TypedDict):
 
     # 模型开发相关信息
     table_name: Optional[str]  # 表名
+    branch_name: Optional[str]  # 代码分支名称
     code_path: Optional[str]  # 代码路径
     adb_code_path: Optional[str]  # ADB中的代码路径（从code_path转换而来）
     source_code: Optional[str]  # 源代码
@@ -107,6 +108,7 @@ class ValidationState(TypedDict):
     
     # 从parsed_request提取的核心字段（供后续节点使用）
     table_name: Optional[str]  # 表名
+    branch_name: Optional[str]  # 代码分支名称
     enhancement_type: Optional[str]  # 增强类型：add_field, modify_logic等
     logic_detail: Optional[str]  # 逻辑详情
     business_purpose: Optional[str]  # 业务用途描述

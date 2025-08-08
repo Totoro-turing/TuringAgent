@@ -83,6 +83,7 @@ class EDWAgentManager:
 2. 具体的增强逻辑描述
 3. 增强类型（添加字段、修改逻辑、优化查询等）
 4. 字段信息：如果是添加字段，请提取所有字段到fields列表中
+5. 代码分支名称（如：main, dev, feature/xxx）
 
 特别注意：
 - 如果从用户的输入中提取不到相关信息，请直接以空字符串填充!!!
@@ -90,10 +91,13 @@ class EDWAgentManager:
 - 每个字段必须包含：
   - physical_name: 物理名称（下划线连接的小写英文，如：invoice_doc_no）
   - attribute_name: 属性名称，即对物理名称的描述（首字母大写的英文描述，如：Invoice Document Number)，如果用户没有明确提供请置空
+- 分支名称是必需的，用于确定从哪个代码分支获取源代码
 
 示例：
-用户输入："给表增加invoice_doc_no（Invoice Document Number）和customer_type（Customer Type）两个字段"
+用户输入："给表增加invoice_doc_no（Invoice Document Number）和customer_type（Customer Type）两个字段，分支是feature/add-invoice"
 应该提取：
+- table_name: "表名"
+- branch_name: "feature/add-invoice"
 - fields: [
     {{"physical_name": "invoice_doc_no", "attribute_name": "Invoice Document Number"}},
     {{"physical_name": "customer_type", "attribute_name": "Customer Type"}}

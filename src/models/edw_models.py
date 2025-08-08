@@ -22,6 +22,7 @@ class ModelEnhanceRequest(BaseModel):
     field_info: Optional[str] = Field(description="字段信息的文本描述（用于向后兼容）", default="")
     fields: Optional[List[FieldDefinition]] = Field(description="新增字段列表", default_factory=list)
     business_requirement: Optional[str] = Field(description="业务需求背景", default="")
+    branch_name: str = Field(description="代码分支名称，如：main, dev, feature/xxx", default="")
 
     def validate_completeness(self) -> tuple[bool, list[str]]:
         """验证信息完整性，返回(是否完整, 缺失信息描述列表)"""
@@ -33,6 +34,10 @@ class ModelEnhanceRequest(BaseModel):
 
         if not self.logic_detail.strip() or self.logic_detail.strip() == "信息不完整":
             missing_info.append("增强逻辑描述")
+        
+        # 分支名称验证
+        if not self.branch_name.strip() or self.branch_name.strip() == "信息不完整":
+            missing_info.append("代码分支名称（如：main, dev, feature/add-field）")
 
         # 如果是添加字段类型，需要额外验证
         if self.enhancement_type == "add_field" or any(keyword in self.logic_detail for keyword in ["增加字段", "新增字段", "添加字段"]):
