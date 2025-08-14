@@ -83,6 +83,10 @@ class EDWState(TypedDict):
     status: Optional[str]  # 节点执行状态：success, error, skipped, processing等
     status_message: Optional[str]  # 状态相关消息（成功、错误、警告等）
     status_details: Optional[dict]  # 状态详细信息（可选）
+    
+    # 🎯 Socket通信支持 - 用于实时进度发送
+    socket_queue: Optional[Any]  # Socket队列对象，用于发送实时进度到前端
+    session_id: Optional[str]  # 会话ID，用于socket消息标识
 
 
 class ValidationState(TypedDict):
@@ -95,6 +99,10 @@ class ValidationState(TypedDict):
     # 用户和会话信息
     user_id: str  # 用户ID，用于会话隔离
     type: Optional[str]  # 任务类型，从主图继承
+    
+    # 🎯 Socket通信支持 - 用于实时进度发送
+    socket_queue: Optional[Any]  # Socket队列对象，用于发送实时进度到前端
+    session_id: Optional[str]  # 会话ID，用于socket消息标识
     
     # 验证流程控制状态
     validation_status: Optional[str]  # 验证状态：processing, incomplete_info, completed, retry, proceed

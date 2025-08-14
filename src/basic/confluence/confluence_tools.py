@@ -5,6 +5,7 @@ Confluence集成工具
 """
 
 import logging
+import os
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 from .confluence_operate import ConfluenceManager
@@ -17,11 +18,16 @@ class ConfluenceWorkflowTools:
     
     def __init__(self):
         """初始化Confluence工具"""
-        # 配置信息（应该从配置文件读取）
-        self.confluence_url = "https://km.xpaas.lenovo.com/"
-        self.username = "longyu3"
-        self.api_token = "ODAwMTgyNDE4MjkzOkf49kKmllqMHutw8/Z5Qeq2Zntn"
-        self.target_space_name = "EDW Delivery Knowledge Center"
+        # 从环境变量读取配置信息
+        self.confluence_url = os.getenv("CONFLUENCE_URL", "https://km.xpaas.lenovo.com/")
+        self.username = os.getenv("CONFLUENCE_USERNAME", "longyu3")
+        self.api_token = os.getenv("CONFLUENCE_API_TOKEN")
+        self.target_space_name = os.getenv("CONFLUENCE_TARGET_SPACE_NAME", "EDW Delivery Knowledge Center")
+        
+        # 验证必需的配置
+        if not self.api_token:
+            logger.error("CONFLUENCE_API_TOKEN 环境变量未设置")
+            raise ValueError("CONFLUENCE_API_TOKEN 环境变量未设置")
         
         # 页面路径配置
         self.page_paths = {

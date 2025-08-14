@@ -4,41 +4,26 @@
 """
 
 import logging
-import asyncio
 from datetime import datetime
 from src.models.states import EDWState
 
 logger = logging.getLogger(__name__)
 
 
-def code_refinement_node(state: EDWState):
+async def code_refinement_node(state: EDWState):
     """代码微调执行节点 - 复用增强引擎"""
     
-    # 获取微调需求
-    refinement_requirements = state.get("refinement_requirements", "")
-    current_code = state.get("enhance_code", "")
-    table_name = state.get("table_name", "")
     user_id = state.get("user_id", "")
     
-    # 构建原始上下文信息
-    original_context = {
-        "logic_detail": state.get("logic_detail", ""),
-        "fields_info": _format_fields_info(state.get("fields", []))
-    }
-    
     try:
-        # 导入执行任务函数（避免循环导入）
-        from src.graph.edw_graph import _execute_code_enhancement_task
+        # 导入执行任务函数（从独立的utils模块）
+        from src.graph.utils.enhancement import execute_code_enhancement_task
         
-        # 使用微调模式的增强引擎
-        refinement_result = asyncio.run(_execute_code_enhancement_task(
+        # 使用微调模式的增强引擎 - 参数从state中获取
+        refinement_result = await execute_code_enhancement_task(
             enhancement_mode="refinement",
-            current_code=current_code,
-            user_feedback=refinement_requirements,
-            table_name=table_name,
-            original_context=original_context,
-            user_id=user_id
-        ))
+            state=state
+        )
         
         if refinement_result.get("success"):
             # 更新微调轮次
@@ -48,8 +33,8 @@ def code_refinement_node(state: EDWState):
             refinement_history = state.get("refinement_history", [])
             refinement_history.append({
                 "round": current_round,
-                "user_feedback": refinement_requirements,
-                "old_code": current_code[:200] + "...",
+                "user_feedback": state.get("refinement_requirements", ""),
+                "old_code": (state.get("enhance_code", "") or "")[:200] + "...",
                 "optimization_summary": refinement_result.get("optimization_summary", ""),
                 "timestamp": datetime.now().isoformat()
             })
@@ -89,23 +74,3 @@ def code_refinement_node(state: EDWState):
         }
 
 
-def _format_fields_info(fields: list) -> str:
-    """格式化字段信息为字符串"""
-    if not fields:
-        return "无字段信息"
-    
-    fields_info = []
-    for field in fields:
-        if isinstance(field, dict):
-            name = field.get('physical_name', '')
-            attr = field.get('attribute_name', '')
-        else:
-            name = getattr(field, 'physical_name', '')
-            attr = getattr(field, 'attribute_name', '')
-        
-        if name and attr:
-            fields_info.append(f"{name} ({attr})")
-        elif name:
-            fields_info.append(name)
-    
-    return ', '.join(fields_info) if fields_info else "无字段信息"

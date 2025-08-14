@@ -222,3 +222,27 @@ def parse_agent_response(content: str) -> dict:
             default_result["alter_statements"] = sql_matches[1].strip()
         
         return default_result
+
+
+
+
+def format_fields_info(fields: list) -> str:
+    """格式化字段信息为字符串"""
+    if not fields:
+        return "无字段信息"
+    
+    fields_info = []
+    for field in fields:
+        if isinstance(field, dict):
+            name = field.get('physical_name', '')
+            attr = field.get('attribute_name', '')
+        else:
+            name = getattr(field, 'physical_name', '')
+            attr = getattr(field, 'attribute_name', '')
+        
+        if name and attr:
+            fields_info.append(f"{name} ({attr})")
+        elif name:
+            fields_info.append(name)
+    
+    return ', '.join(fields_info) if fields_info else "无字段信息"

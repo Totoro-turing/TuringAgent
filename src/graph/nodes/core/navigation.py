@@ -29,16 +29,23 @@ chat_agent = get_chat_agent()
 def navigate_node(state: EDWState):
     """导航节点：负责用户输入的初始分类"""
     
-    # 如果已经有type，直接返回
-    if 'type' in state and state['type'] != '' and state['type'] != 'other':
-        return {"type": state['type'], "user_id": state.get("user_id", "")}
+    # 如果已经有type且不为空，且不是None，且不是'other'，直接返回
+    task_type = state.get('type')
+    if task_type and task_type != 'other':
+        return {"type": task_type, "user_id": state.get("user_id", "")}
     
     prompt_template = config_manager.get_prompt("navigation_prompt")
     prompt = PromptTemplate.from_template(prompt_template)
     
     try:
-        # 使用配置管理器 - 导航智能体独立memory
-        config = SessionManager.get_config(state.get("user_id", ""), "navigation")
+        # 使用带监控的配置管理器 - 导航智能体独立memory
+        config = SessionManager.get_config_with_monitor(
+            user_id=state.get("user_id", ""),
+            agent_type="navigation",
+            state=state,
+            node_name="navigation",
+            enhanced_monitoring=True
+        )
         
         # 获取消息内容
         last_message = state["messages"][-1]
@@ -55,7 +62,9 @@ def navigate_node(state: EDWState):
         classification = response["messages"][-1].content.strip().lower()
         logger.info(f"Navigation classification: {classification}")
         
-        if "other" in classification:
+        if "function" in classification:
+            return {"type": "function", "user_id": state.get("user_id", "")}
+        elif "other" in classification:
             return {"type": "other", "user_id": state.get("user_id", "")}
         else:
             return {"type": "model_dev", "user_id": state.get("user_id", "")}
@@ -68,8 +77,14 @@ def navigate_node(state: EDWState):
 def chat_node(state: EDWState):
     """聊天节点：处理普通对话"""
     try:
-        # 使用配置管理器 - 聊天智能体独立memory
-        config = SessionManager.get_config(state.get("user_id", ""), "chat")
+        # 使用带监控的配置管理器 - 聊天智能体独立memory
+        config = SessionManager.get_config_with_monitor(
+            user_id=state.get("user_id", ""),
+            agent_type="chat",
+            state=state,
+            node_name="chat",
+            enhanced_monitoring=True
+        )
         
         # 获取最后一条消息的内容
         last_message = state["messages"][-1]
@@ -106,8 +121,14 @@ def edw_model_node(state: EDWState):
     prompt = PromptTemplate.from_template(prompt_template)
     
     try:
-        # 使用配置管理器 - 模型智能体独立memory
-        config = SessionManager.get_config(state.get("user_id", ""), "model")
+        # 使用带监控的配置管理器 - 模型智能体独立memory
+        config = SessionManager.get_config_with_monitor(
+            user_id=state.get("user_id", ""),
+            agent_type="model",
+            state=state,
+            node_name="model_classification",
+            enhanced_monitoring=True
+        )
         
         # 获取消息内容
         last_message = state["messages"][-1]

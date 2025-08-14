@@ -10,13 +10,12 @@ import threading
 import signal
 import atexit
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Callable
+from typing import Dict, List, Optional, Callable, Any
 from dataclasses import dataclass, asdict
 import logging
 
 # 导入EDW相关模块
 from src.server.edw_service import EDWStreamService, EDWStreamConfig
-from src.graph.edw_graph import guid, EDWState
 from src.agent.edw_agents import get_agent_manager
 from pydantic import BaseModel
 from openai.types.responses import ResponseTextDeltaEvent
@@ -461,19 +460,30 @@ def index():
 @app.route('/api/chat/stream', methods=['POST'])
 def chat_stream():
     """流式聊天接口 - 简化版（只处理AI文本）"""
+    logger.info(f"📡 收到chat/stream请求: {request.method} {request.url}")
+    logger.info(f"📋 请求头: {dict(request.headers)}")
+    logger.info(f"🌐 客户端地址: {request.environ.get('REMOTE_ADDR')}")
+    
     try:
         data = request.get_json()
+        logger.info(f"📦 请求数据: {data}")
+        
         if not data:
+            logger.error("❌ 缺少请求数据")
             return jsonify({'success': False, 'error': '缺少请求数据'}), 400
 
         message = data.get('message')
         session_id = data.get('session_id')
 
+        logger.info(f"📝 解析消息参数: message='{message[:50] if message else None}...', session_id='{session_id}'")
+
         if not message or not message.strip():
+            logger.error("❌ 消息内容为空")
             return jsonify({'success': False, 'error': '消息内容不能为空'}), 400
 
         if not session_id:
             session_id = f"session-{int(time.time())}-{uuid.uuid4().hex[:8]}"
+            logger.info(f"🆔 生成新的session_id: {session_id}")
 
         logger.info(f"🎯 开始处理流式聊天: {message[:50]}... (会话: {session_id[:8]})")
 
@@ -615,22 +625,46 @@ signal.signal(signal.SIGTERM, signal_handler)
 
 
 if __name__ == '__main__':
-    print("🚀 EDW智能聊天助手后端服务启动中...")
-    print("🔄 实时通信: SocketIO")
-    print("🤖 AI模型类型: deepseek")
-    print(f"💬 会话管理: 最大历史记录 {session_manager.max_history_per_session} 条")
-    print("\n📋 通信架构:")
+    print("EDW智能聊天助手后端服务启动中...")
+    print("实时通信: SocketIO")
+    print("AI模型类型: deepseek")
+    print(f"会话管理: 最大历史记录 {session_manager.max_history_per_session} 条")
+    print("\n通信架构:")
     print("   HTTP Stream: AI文本响应")
     print("   SocketIO: 实时Agent消息（页面切换、工具状态等）")
-    print("\n💡 SocketIO事件:")
+    print("\nSocketIO事件:")
     print("   connect/disconnect - 连接管理")
     print("   join_session/leave_session - 会话管理")
     print("   agent_message - Agent实时消息")
-    print("\n🛡️ 资源管理:")
-    print("   ✅ 已注册应用关闭清理函数")
-    print("   ✅ 已注册信号处理器 (SIGINT/SIGTERM)")
-    print("   ✅ MCP服务器会在应用关闭时正确清理")
-    print("   ✅ Agent实例会在会话结束时自动清理")
+    print("\n资源管理:")
+    print("   已注册应用关闭清理函数")
+    print("   已注册信号处理器 (SIGINT/SIGTERM)")
+    print("   MCP服务器会在应用关闭时正确清理")
+    print("   Agent实例会在会话结束时自动清理")
+
+    # 初始化功能Agent
+    print("\n功能Agent初始化:")
+    try:
+        import asyncio
+        from src.agent.edw_agents import get_agent_manager
+        
+        def initialize_function_agent():
+            async def _init():
+                agent_manager = get_agent_manager()
+                await agent_manager.async_initialize()
+                print("   ✅ 功能Agent初始化完成")
+                
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(_init())
+            finally:
+                loop.close()
+        
+        initialize_function_agent()
+    except Exception as e:
+        print(f"   ❌ 功能Agent初始化失败: {e}")
+        logger.error(f"功能Agent初始化失败: {e}")
 
     try:
         socketio.run(app, debug=True, host='0.0.0.0', port=5000, allow_unsafe_werkzeug=True)

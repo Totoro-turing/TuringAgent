@@ -11,17 +11,29 @@ logger = logging.getLogger(__name__)
 
 
 def routing_fun(state: EDWState):
-    """主路由函数：决定进入聊天还是模型处理"""
-    if 'model' in state["type"]:
+    """主路由函数：决定进入聊天、模型处理还是功能节点"""
+    task_type = state.get("type", "")
+    # 处理None或空值的情况
+    if not task_type:
+        return "chat_node"
+    
+    if 'function' in task_type:
+        return "function_node"
+    elif 'model' in task_type:
         return "model_node"
     return "chat_node"
 
 
 def model_routing_fun(state: EDWState):
     """模型开发路由函数"""
-    if "model_enhance" in state["type"]:
+    task_type = state.get("type", "")
+    # 处理None或空值的情况
+    if not task_type:
+        return END
+    
+    if "model_enhance" in task_type:
         return "model_enhance_data_validation_node"
-    elif "model_add" in state["type"]:
+    elif "model_add" in task_type:
         return "model_add_data_validation_node"
     else:
         return END

@@ -92,29 +92,41 @@
 
         .search-container {
             width: 100%;
-            max-width: 700px;
+            max-width: 800px;
             position: relative;
             margin-bottom: 40px;
         }
 
+        .search-input-wrapper {
+            position: relative;
+            margin-bottom: 24px;
+        }
+
         .search-input {
             width: 100%;
-            padding: 24px 70px 24px 28px;
+            min-height: 60px;
+            max-height: 200px;
+            padding: 18px 70px 18px 28px;
             background: var(--bg-secondary);
             border: 2px solid var(--border-color);
-            border-radius: 50px;
+            border-radius: 30px;
             font-size: 18px;
+            font-family: inherit;
             color: var(--text-primary);
             outline: none;
+            resize: none;
+            overflow-y: hidden;
             transition: all 0.3s ease;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
             text-align: center;
+            line-height: 1.5;
         }
 
         .search-input:focus {
             border-color: var(--accent-primary);
             box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.15), 0 8px 32px rgba(0, 0, 0, 0.4);
             text-align: left;
+            border-radius: 20px;
         }
 
         .search-input::placeholder {
@@ -125,6 +137,85 @@
         .search-input:focus::placeholder {
             text-align: left;
         }
+
+        /* 输入建议样式 */
+        .input-suggestions {
+            opacity: 1;
+            transform: translateY(0);
+            transition: all 0.4s ease;
+        }
+
+        .input-suggestions.hidden {
+            opacity: 0;
+            transform: translateY(-20px);
+            pointer-events: none;
+        }
+
+        .suggestions-header {
+            text-align: center;
+            font-size: 16px;
+            color: var(--text-secondary);
+            margin-bottom: 20px;
+            font-weight: 500;
+        }
+
+        .suggestions-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 12px;
+            max-width: 100%;
+        }
+
+        .suggestion-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px 20px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            opacity: 0;
+            animation: fadeInUp 0.6s ease forwards;
+        }
+
+        .suggestion-item:hover {
+            background: var(--bg-tertiary);
+            border-color: var(--accent-primary);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(79, 70, 229, 0.15);
+        }
+
+        .suggestion-icon {
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+
+        .suggestion-text {
+            font-size: 14px;
+            color: var(--text-primary);
+            line-height: 1.4;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* 为每个建议项添加延迟动画 */
+        .suggestion-item:nth-child(1) { animation-delay: 0.1s; }
+        .suggestion-item:nth-child(2) { animation-delay: 0.2s; }
+        .suggestion-item:nth-child(3) { animation-delay: 0.3s; }
+        .suggestion-item:nth-child(4) { animation-delay: 0.4s; }
+        .suggestion-item:nth-child(5) { animation-delay: 0.5s; }
+        .suggestion-item:nth-child(6) { animation-delay: 0.6s; }
 
         .search-btn {
             position: absolute;
@@ -384,8 +475,44 @@
         }
 
         .message.user .message-content:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.35);
+            transform: translateY(-3px) scale(1.01);
+            box-shadow: 0 12px 35px rgba(102, 126, 234, 0.4),
+                        0 0 0 1px rgba(102, 126, 234, 0.5),
+                        0 0 25px rgba(102, 126, 234, 0.2);
+        }
+
+        /* 用户消息边框高亮效果 */
+        .message.user .message-content::after {
+            content: '';
+            position: absolute;
+            inset: -2px;
+            background: linear-gradient(45deg, 
+                rgba(102, 126, 234, 0.6), 
+                rgba(118, 75, 162, 0.6),
+                rgba(245, 87, 108, 0.6),
+                rgba(102, 126, 234, 0.6)
+            );
+            border-radius: inherit;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: -1;
+            filter: blur(8px);
+            animation: userBorderFlow 4s ease-in-out infinite;
+        }
+
+        .message.user .message-content:hover::after {
+            opacity: 1;
+        }
+
+        @keyframes userBorderFlow {
+            0%, 100% { 
+                background-position: 0% 50%;
+                filter: blur(8px);
+            }
+            50% { 
+                background-position: 100% 50%;
+                filter: blur(12px);
+            }
         }
 
         /* 用户消息文本样式 */
@@ -462,8 +589,44 @@
         }
 
         .chat-container.workspace-mode .message.user .user-message:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 6px 20px rgba(79, 70, 229, 0.4);
+            transform: translateY(-2px) scale(1.01);
+            box-shadow: 0 10px 30px rgba(79, 70, 229, 0.5),
+                        0 0 0 1px rgba(79, 70, 229, 0.6),
+                        0 0 20px rgba(79, 70, 229, 0.3);
+        }
+
+        /* 工作区模式用户消息边框高亮 */
+        .chat-container.workspace-mode .message.user .user-message::after {
+            content: '';
+            position: absolute;
+            inset: -2px;
+            background: linear-gradient(45deg, 
+                rgba(79, 70, 229, 0.7), 
+                rgba(124, 58, 237, 0.7),
+                rgba(139, 92, 246, 0.7),
+                rgba(79, 70, 229, 0.7)
+            );
+            border-radius: inherit;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: -1;
+            filter: blur(6px);
+            animation: workspaceUserBorderGlow 3s ease-in-out infinite;
+        }
+
+        .chat-container.workspace-mode .message.user .user-message:hover::after {
+            opacity: 1;
+        }
+
+        @keyframes workspaceUserBorderGlow {
+            0%, 100% { 
+                filter: blur(6px);
+                transform: scale(1);
+            }
+            50% { 
+                filter: blur(10px);
+                transform: scale(1.02);
+            }
         }
 
         /* 工作区模式下的代码样式 */
@@ -558,10 +721,66 @@
             overflow: hidden !important;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
             animation: slideInAgent 0.4s ease-out !important;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
             /* 强制隔离，确保不被其他样式影响 */
             isolation: isolate !important;
             contain: layout style !important;
             z-index: 10 !important;
+        }
+
+        /* Agent消息悬停效果 */
+        .message.agent:hover {
+            transform: translateY(-2px) scale(1.01) !important;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4) !important;
+        }
+
+        /* Agent消息边框高亮 */
+        .message.agent::before {
+            content: '' !important;
+            position: absolute !important;
+            inset: -1px !important;
+            border-radius: inherit !important;
+            opacity: 0 !important;
+            transition: opacity 0.3s ease !important;
+            z-index: -1 !important;
+            filter: blur(6px) !important;
+        }
+
+        .message.agent:hover::before {
+            opacity: 1 !important;
+        }
+
+        /* 不同类型Agent消息的边框高亮颜色 */
+        .message.agent.page-switch::before {
+            background: linear-gradient(45deg, rgba(79, 70, 229, 0.8), rgba(99, 102, 241, 0.8)) !important;
+        }
+
+        .message.agent.agent-handoff::before {
+            background: linear-gradient(45deg, rgba(124, 58, 237, 0.8), rgba(139, 92, 246, 0.8)) !important;
+        }
+
+        .message.agent.tool-start::before {
+            background: linear-gradient(45deg, rgba(8, 145, 178, 0.8), rgba(6, 182, 212, 0.8)) !important;
+        }
+
+        .message.agent.tool-end::before {
+            background: linear-gradient(45deg, rgba(5, 150, 105, 0.8), rgba(16, 185, 129, 0.8)) !important;
+        }
+
+        .message.agent.code-found::before {
+            background: linear-gradient(45deg, rgba(220, 38, 38, 0.8), rgba(239, 68, 68, 0.8)) !important;
+        }
+
+        .message.agent.code-error::before {
+            background: linear-gradient(45deg, rgba(234, 88, 12, 0.8), rgba(249, 115, 22, 0.8)) !important;
+        }
+
+        .message.agent.code-update::before {
+            background: linear-gradient(45deg, rgba(124, 58, 237, 0.8), rgba(168, 85, 247, 0.8)) !important;
+        }
+
+        .message.agent.agent-end::before {
+            background: linear-gradient(45deg, rgba(22, 163, 74, 0.8), rgba(34, 197, 94, 0.8)) !important;
         }
 
         .chat-container.workspace-mode .message.agent {
@@ -699,10 +918,16 @@
 
         /* 消息内容 */
         .message-content {
-            max-width: 600px;
+            max-width: 620px; /* 增加宽度 */
             color: var(--text-primary);
             font-size: 15px;
             line-height: 1.7;
+            position: relative;
+            padding: 16px;
+            border-radius: 12px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            background: rgba(30, 30, 30, 0.5);
+            backdrop-filter: blur(10px);
         }
 
         .chat-container.workspace-mode .message-content {
@@ -710,6 +935,55 @@
             color: #e5e5e5;
             flex: 1;
             max-width: 100%;
+            background: rgba(42, 42, 42, 0.7);
+        }
+
+        /* AI消息内容悬停效果 - 精确定位 */
+        .message.ai .message-content {
+            position: relative;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .message.ai .message-content:hover {
+            transform: translateY(-2px) translateX(3px) scale(1.01);
+            background: rgba(30, 30, 30, 0.9);
+            box-shadow: 0 12px 35px rgba(0, 0, 0, 0.25),
+                        0 0 0 1px rgba(79, 70, 229, 0.4),
+                        0 0 25px rgba(79, 70, 229, 0.15);
+        }
+
+        /* AI消息内容边框高亮效果 */
+        .message.ai .message-content::after {
+            content: '';
+            position: absolute;
+            inset: -2px;
+            border-radius: inherit;
+            background: linear-gradient(45deg, 
+                rgba(79, 70, 229, 0.6), 
+                rgba(124, 58, 237, 0.6),
+                rgba(59, 130, 246, 0.6),
+                rgba(79, 70, 229, 0.6)
+            );
+            opacity: 0;
+            transition: opacity 0.4s ease;
+            z-index: -1;
+            filter: blur(8px);
+            animation: aiBorderFlow 4s ease-in-out infinite;
+        }
+
+        .message.ai .message-content:hover::after {
+            opacity: 1;
+        }
+
+        @keyframes aiBorderFlow {
+            0%, 100% { 
+                filter: blur(8px);
+                background-position: 0% 50%;
+            }
+            50% { 
+                filter: blur(12px);
+                background-position: 100% 50%;
+            }
         }
 
         /* 处理中状态 */
@@ -750,6 +1024,167 @@
         .processing-text {
             color: var(--accent-primary);
             font-weight: 500;
+        }
+
+        /* ===== 思考过程消息样式 ===== */
+        .message.thinking {
+            background: linear-gradient(135deg, rgba(124, 58, 237, 0.15), rgba(79, 70, 229, 0.15));
+            border: 1px solid rgba(124, 58, 237, 0.3);
+            border-radius: 16px;
+            margin: 16px auto;
+            max-width: 680px; /* 进一步增加宽度以容纳更多消息 */
+            overflow: hidden;
+            animation: thinkingFadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            text-align: center;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(124, 58, 237, 0.15);
+        }
+
+        @keyframes thinkingFadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px) scale(0.98);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        .thinking-header {
+            display: flex;
+            align-items: center;
+            padding: 16px 20px 12px;
+            border-bottom: 1px solid rgba(124, 58, 237, 0.2);
+            background: rgba(124, 58, 237, 0.05);
+        }
+
+        .thinking-title {
+            font-weight: 600;
+            color: #a855f7;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+        }
+
+        .thinking-spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid #a855f7;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 1.5s linear infinite;
+        }
+
+        .thinking-content {
+            padding: 16px 20px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .thinking-step {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(124, 58, 237, 0.1);
+            transition: all 0.3s ease;
+            opacity: 0.6;
+        }
+
+        .thinking-step:last-child {
+            border-bottom: none;
+        }
+
+        .thinking-step.current {
+            opacity: 1;
+            background: rgba(124, 58, 237, 0.05);
+            margin: 0 -12px;
+            padding: 12px;
+            border-radius: 8px;
+            border-bottom: 1px solid rgba(124, 58, 237, 0.1);
+            animation: thinkingGlow 2s ease-in-out infinite alternate;
+        }
+
+        .thinking-step.completed {
+            opacity: 0.8;
+            color: #10b981;
+        }
+
+        .thinking-step.failed {
+            opacity: 0.8;
+            color: #ef4444;
+        }
+
+        @keyframes thinkingGlow {
+            from {
+                box-shadow: 0 0 8px rgba(124, 58, 237, 0.2);
+            }
+            to {
+                box-shadow: 0 0 16px rgba(124, 58, 237, 0.4);
+            }
+        }
+
+        .thinking-step-icon {
+            font-size: 16px;
+            line-height: 1;
+            flex-shrink: 0;
+            animation: iconPulse 2s ease-in-out infinite;
+        }
+
+        @keyframes iconPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+
+        .thinking-step-text {
+            font-size: 13px;
+            line-height: 1.4;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .thinking-step-detail {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+            line-height: 1.3;
+        }
+
+        .thinking-step.current .thinking-step-icon {
+            animation: iconPulse 1s ease-in-out infinite;
+        }
+
+        .thinking-step.completed .thinking-step-icon {
+            animation: none;
+        }
+
+        .thinking-step.failed .thinking-step-icon {
+            animation: shake 0.5s ease-in-out;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-2px); }
+            75% { transform: translateX(2px); }
+        }
+
+        /* 隐藏思考过程消息的动画 */
+        .message.thinking.hiding {
+            animation: thinkingFadeOut 0.5s ease-in forwards;
+        }
+
+        @keyframes thinkingFadeOut {
+            to {
+                opacity: 0;
+                transform: translateY(-10px) scale(0.98);
+                margin-top: 0;
+                margin-bottom: 0;
+                padding-top: 0;
+                padding-bottom: 0;
+                max-height: 0;
+            }
         }
 
         /* 输入区域 */
@@ -841,6 +1276,65 @@
 
         .chat-container.workspace-mode .send-button:hover {
             background: #4338ca;
+        }
+        
+        /* 聊天输入建议样式 */
+        .chat-input-suggestions {
+            margin-top: 16px;
+            opacity: 1;
+            transform: translateY(0);
+            transition: all 0.4s ease;
+        }
+        
+        .chat-input-suggestions.hidden {
+            opacity: 0;
+            transform: translateY(-10px);
+            pointer-events: none;
+        }
+        
+        .chat-input-suggestions .suggestions-header {
+            text-align: left;
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+            padding-left: 4px;
+        }
+        
+        .chat-input-suggestions .suggestions-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 8px;
+        }
+        
+        .chat-input-suggestions .suggestion-item {
+            padding: 12px 16px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            font-size: 13px;
+        }
+        
+        .chat-input-suggestions .suggestion-item:hover {
+            background: var(--bg-tertiary);
+            border-color: var(--accent-primary);
+            transform: translateY(-1px);
+        }
+        
+        .chat-input-suggestions .suggestion-icon {
+            font-size: 14px;
+        }
+        
+        /* 工作区模式下的建议样式 */
+        .chat-container.workspace-mode .chat-input-suggestions {
+            margin-top: 12px;
+        }
+        
+        .chat-container.workspace-mode .chat-input-suggestions .suggestion-item {
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 12px;
         }
 
         .workspace-actions {
@@ -1407,6 +1901,7 @@
             background: #4338ca;
         }
 
+
         /* ===== 状态通知样式 ===== */
         .status-notification {
             position: fixed;
@@ -1520,7 +2015,21 @@
 
             .search-input {
                 font-size: 16px;
-                padding: 20px 60px 20px 24px;
+                padding: 16px 60px 16px 24px;
+                min-height: 52px;
+            }
+
+            .suggestions-grid {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+
+            .suggestion-item {
+                padding: 14px 16px;
+            }
+
+            .suggestion-text {
+                font-size: 13px;
             }
 
             .search-btn {
@@ -1959,7 +2468,8 @@
         
         /* 增强代码显示样式 */
         .message.enhanced-code,
-        .message.refined-code {
+        .message.refined-code,
+        .message.original-code {
             background: var(--bg-tertiary);
             border: 1px solid var(--accent-color);
             margin: 16px 24px;
@@ -1968,7 +2478,8 @@
         }
         
         .enhanced-code-header,
-        .refined-code-header {
+        .refined-code-header,
+        .original-code-header {
             background: linear-gradient(135deg, var(--accent-color), #764ba2);
             color: white;
             padding: 12px 16px;
@@ -1976,8 +2487,35 @@
             font-weight: 500;
         }
         
+        /* 原始代码特殊样式 */
+        .message.original-code {
+            border-color: #10b981;
+        }
+        
+        .original-code-header {
+            background: linear-gradient(135deg, #10b981, #059669);
+        }
+        
+        .code-meta-info {
+            margin-top: 8px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            font-size: 12px;
+            opacity: 0.9;
+        }
+        
+        .meta-item {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 400;
+        }
+        
         .message.enhanced-code pre,
-        .message.refined-code pre {
+        .message.refined-code pre,
+        .message.original-code pre {
             margin: 0;
             padding: 16px;
             background: var(--bg-primary);
@@ -2007,38 +2545,6 @@
             transform: translateY(-1px);
         }
         
-        /* 中断提示样式 */
-        .message.interrupt-prompt {
-            background: linear-gradient(135deg, #ffeaa7 0%, #fdcb6e 100%);
-            border: 2px solid #fdcb6e;
-            margin: 16px 24px;
-            border-radius: 12px;
-            padding: 16px;
-            color: #2d3436;
-        }
-        
-        .interrupt-header {
-            font-size: 16px;
-            margin-bottom: 12px;
-            color: #2d3436;
-        }
-        
-        .interrupt-content {
-            background: rgba(255, 255, 255, 0.9);
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 12px;
-            line-height: 1.6;
-            white-space: pre-wrap;
-        }
-        
-        .interrupt-hint {
-            font-size: 13px;
-            font-style: italic;
-            color: #636e72;
-            padding-top: 8px;
-            border-top: 1px solid rgba(0, 0, 0, 0.1);
-        }
         
         /* 节点状态样式 */
         .node-status {
@@ -2074,8 +2580,41 @@
 <div class="homepage-container" id="homepage">
     <div class="logo">Turing</div>
     <div class="search-container">
-        <input type="text" class="search-input" id="searchInput" placeholder="嗨！我是 Turing，有什么可以帮助你的？">
-        <button class="search-btn" id="searchBtn">➤</button>
+        <div class="search-input-wrapper">
+            <textarea class="search-input" id="searchInput" placeholder="嗨！我是 Turing，有什么可以帮助你的？" rows="1"></textarea>
+            <button class="search-btn" id="searchBtn">➤</button>
+        </div>
+        
+        <!-- 输入建议 -->
+        <div class="input-suggestions" id="inputSuggestions">
+            <div class="suggestions-header">💡 试试这些问题</div>
+            <div class="suggestions-grid">
+                <div class="suggestion-item" onclick="applySuggestion(this)">
+                    <span class="suggestion-icon">📊</span>
+                    <span class="suggestion-text">帮我分析销售数据表的字段结构</span>
+                </div>
+                <div class="suggestion-item" onclick="applySuggestion(this)">
+                    <span class="suggestion-icon">🔧</span>
+                    <span class="suggestion-text">为用户表添加新的业务字段</span>
+                </div>
+                <div class="suggestion-item" onclick="applySuggestion(this)">
+                    <span class="suggestion-icon">📈</span>
+                    <span class="suggestion-text">优化财务报表的查询性能</span>
+                </div>
+                <div class="suggestion-item" onclick="applySuggestion(this)">
+                    <span class="suggestion-icon">🎯</span>
+                    <span class="suggestion-text">创建客户画像分析模型</span>
+                </div>
+                <div class="suggestion-item" onclick="applySuggestion(this)">
+                    <span class="suggestion-icon">💰</span>
+                    <span class="suggestion-text">生成订单金额统计代码</span>
+                </div>
+                <div class="suggestion-item" onclick="applySuggestion(this)">
+                    <span class="suggestion-icon">🔍</span>
+                    <span class="suggestion-text">帮我检查数据质量问题</span>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -2131,6 +2670,37 @@
                 </svg>
             </button>
         </div>
+        
+        <!-- 聊天输入建议 -->
+        <div class="chat-input-suggestions" id="chatInputSuggestions">
+            <div class="suggestions-header">💡 快速输入</div>
+            <div class="suggestions-grid">
+                <div class="suggestion-item" onclick="applyChatSuggestion(this)">
+                    <span class="suggestion-icon">📊</span>
+                    <span class="suggestion-text">帮我分析销售数据表的字段结构</span>
+                </div>
+                <div class="suggestion-item" onclick="applyChatSuggestion(this)">
+                    <span class="suggestion-icon">🔧</span>
+                    <span class="suggestion-text">为用户表添加新的业务字段</span>
+                </div>
+                <div class="suggestion-item" onclick="applyChatSuggestion(this)">
+                    <span class="suggestion-icon">📈</span>
+                    <span class="suggestion-text">优化订单表的查询性能</span>
+                </div>
+                <div class="suggestion-item" onclick="applyChatSuggestion(this)">
+                    <span class="suggestion-icon">🔍</span>
+                    <span class="suggestion-text">检查数据质量问题并生成报告</span>
+                </div>
+                <div class="suggestion-item" onclick="applyChatSuggestion(this)">
+                    <span class="suggestion-icon">🏗️</span>
+                    <span class="suggestion-text">设计一个新的数据模型</span>
+                </div>
+                <div class="suggestion-item" onclick="applyChatSuggestion(this)">
+                    <span class="suggestion-icon">⚡</span>
+                    <span class="suggestion-text">批量更新表字段的业务逻辑</span>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -2182,6 +2752,7 @@ def analyze_data(data_file):
     </div>
 </div>
 
+
 <!-- 状态通知 -->
 <div class="status-notification" id="statusNotification">
     <span id="notificationMessage"></span>
@@ -2221,6 +2792,11 @@ def analyze_data(data_file):
     // 模型增强完成信息缓存
     let pendingEnhanceInfo = null;
     
+    // 思考框状态管理
+    let thinkingBoxVisible = false;
+    let thinkingSteps = new Map(); // 存储思考步骤状态
+    let currentThinkingMessageId = null; // 当前思考消息的ID
+    
     /**
      * 保存等待中的增强信息
      * @param {Object} codeInfo - 代码信息
@@ -2259,6 +2835,11 @@ def analyze_data(data_file):
         setTimeout(() => {
             homepage.classList.add('hidden');
         }, 600);
+
+        // 重置聊天建议状态（初次进入聊天时可以显示建议）
+        if (chatSuggestionsPermanentlyHidden === undefined) {
+            chatSuggestionsPermanentlyHidden = false;
+        }
 
         // 加载会话历史
         loadSessionHistory();
@@ -2328,6 +2909,11 @@ def analyze_data(data_file):
         pendingRunAction = null;
         pendingEnhanceInfo = null; // 清理待处理增强信息
         
+        // 隐藏思考框
+        if (thinkingBoxVisible) {
+            hideThinkingBox();
+        }
+        
         // 清理卡片ID
         window.currentUpdateCardId = null;
         window.currentRunCardId = null;
@@ -2361,6 +2947,12 @@ def analyze_data(data_file):
 
         // 聚焦搜索框
         document.getElementById('searchInput').focus();
+
+        // 重新显示首页建议
+        checkSuggestionsVisibility();
+        
+        // 重置聊天建议状态，下次进入聊天时可以显示
+        chatSuggestionsPermanentlyHidden = false;
 
         console.log('🏠 已返回主页');
     }
@@ -2843,32 +3435,13 @@ def analyze_data(data_file):
     }
 
     function addProcessingIndicator() {
-        const messagesContainer = document.getElementById('chatMessages');
-        const processingDiv = document.createElement('div');
-        processingDiv.id = 'processingIndicator';
-        processingDiv.className = 'processing-indicator';
-        processingDiv.setAttribute('data-message-type', 'processing');
-        processingDiv.innerHTML = `
-            <div class="processing-spinner"></div>
-            <div class="processing-text">Turing 正在处理您的请求...</div>
-        `;
-
-        messagesContainer.appendChild(processingDiv);
-
-        // 延迟滚动
-        requestAnimationFrame(() => {
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
-        });
-
-        console.log('⏳ 添加处理中指示器');
+        // 不立即显示思考框，等后端通过导航节点判断为EDW任务后再显示
+        console.log('⏳ 开始处理 - 等待后端路由判断');
     }
 
     function removeProcessingIndicator() {
-        const processingIndicator = document.getElementById('processingIndicator');
-        if (processingIndicator) {
-            processingIndicator.remove();
-            console.log('✅ 移除处理中指示器');
-        }
+        // 不立即隐藏思考框，让它在收到AI回复时自然消失
+        console.log('✅ 处理完成 - 保持思考框直到回复生成');
     }
 
     // ===== 流式消息处理（隔离版本）=====
@@ -3621,6 +4194,23 @@ def analyze_data(data_file):
         pendingUserInput = query;
 
         console.log('🔍 用户搜索:', pendingUserInput);
+        
+        // 清理消息去重记录，确保新对话不受影响
+        processedMessages.clear();
+        console.log('🧹 清理消息去重记录，开始新搜索');
+
+        // 重置思考框状态
+        console.log('🧹 搜索前重置思考框状态');
+        if (thinkingBoxVisible) {
+            hideThinkingBox();
+        }
+        thinkingBoxVisible = false;
+        thinkingSteps.clear();
+        currentThinkingMessageId = null;
+        console.log('✅ 搜索-思考框状态已完全重置');
+
+        // 发送消息时隐藏首页建议
+        hideSuggestions();
 
         // 进入聊天模式
         switchToChatMode();
@@ -3649,9 +4239,47 @@ def analyze_data(data_file):
         const sendBtn = document.getElementById('sendBtn');
         const message = input.value.trim();
 
-        if (!message || isProcessing || input.disabled) return;
+        console.log('🎯 sendMessage 被调用');
+        console.log('📊 当前状态:', {
+            currentPage: currentPage,
+            isProcessing: isProcessing,
+            inputDisabled: input?.disabled,
+            messageLength: message?.length || 0,
+            socketConnected: socketConnected
+        });
+
+        if (!message || isProcessing || input.disabled) {
+            console.log('❌ 发送条件检查失败:', {
+                hasMessage: !!message,
+                isProcessing: isProcessing,
+                inputDisabled: input.disabled
+            });
+            return;
+        }
+
+        // 🔧 修复：如果当前在主页状态，自动切换到聊天模式
+        if (currentPage === 'homepage') {
+            console.log('🔄 检测到在主页状态下发送消息，自动切换到聊天模式');
+            switchToChatMode();
+        }
 
         console.log('💬 发送消息:', message);
+        
+        // 清理消息去重记录，确保新对话不受影响
+        processedMessages.clear();
+        console.log('🧹 清理消息去重记录，开始新对话');
+        
+        // 重置思考框状态，准备显示新的思考过程
+        console.log('🧹 发送消息前重置思考框状态');
+        if (thinkingBoxVisible) {
+            console.log('🔄 隐藏之前的思考框');
+            hideThinkingBox();
+        }
+        // 强制确保状态完全重置
+        thinkingBoxVisible = false;
+        thinkingSteps.clear();
+        currentThinkingMessageId = null;
+        console.log('✅ 思考框状态已完全重置');
         
         // 检查是否在等待中断响应
         if (window.waitingForInterruptResponse) {
@@ -3666,6 +4294,10 @@ def analyze_data(data_file):
         isProcessing = true;
         input.disabled = true;
         sendBtn.disabled = true;
+        
+        // 永久隐藏聊天建议（发送消息后不再显示）
+        chatSuggestionsPermanentlyHidden = true;
+        hideChatSuggestions();
 
         // 添加用户消息
         addMessage(message, 'user');
@@ -3683,6 +4315,12 @@ def analyze_data(data_file):
     // ===== 优化版流式聊天处理（实时Markdown渲染）=====
     async function handleStreamChat(message) {
         console.log('🎯 开始流式聊天:', message);
+        console.log('📋 handleStreamChat 当前状态:', {
+            currentPage: currentPage,
+            currentSessionId: currentSessionId,
+            socketConnected: socketConnected,
+            messageLength: message?.length || 0
+        });
 
         try {
             // 确保有session_id
@@ -3691,14 +4329,38 @@ def analyze_data(data_file):
                 console.log('🆔 生成新session_id:', currentSessionId);
             }
 
-            // SocketIO连接
+            // SocketIO连接 - 确保在HTTP请求前正确加入会话
             if (socket && socketConnected) {
                 console.log('🔗 加入SocketIO会话房间:', currentSessionId);
                 joinSession(currentSessionId);
+                // 等待100ms确保Socket会话加入完成
+                await new Promise(resolve => setTimeout(resolve, 100));
+                console.log('✅ Socket会话加入完成，准备发送HTTP请求');
+            } else {
+                console.log('⚠️ Socket未连接:', { socket: !!socket, socketConnected });
+                console.log('🔄 尝试重新初始化SocketIO...');
+                if (typeof io !== 'undefined') {
+                    initializeSocketIO();
+                    // 等待连接建立
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                    if (socket && socketConnected) {
+                        console.log('🔗 重新连接成功，加入会话房间');
+                        joinSession(currentSessionId);
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    }
+                }
             }
 
-            console.log('📡 发起流式请求:', message);
+            console.log('📡 准备发起HTTP请求');
+            console.log('📋 请求参数:', {
+                url: 'http://localhost:5000/api/chat/stream',
+                method: 'POST',
+                message: message.substring(0, 50) + (message.length > 50 ? '...' : ''),
+                session_id: currentSessionId
+            });
 
+            console.log('🚀 正在发送fetch请求...');
+            
             const response = await fetch('http://localhost:5000/api/chat/stream', {
                 method: 'POST',
                 headers: {
@@ -3710,7 +4372,13 @@ def analyze_data(data_file):
                 })
             });
 
-            console.log('📡 收到响应:', response.status, response.statusText);
+            console.log('📡 收到HTTP响应:', {
+                status: response.status,
+                statusText: response.statusText,
+                ok: response.ok,
+                url: response.url,
+                headers: Object.fromEntries(response.headers.entries())
+            });
 
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
@@ -3728,6 +4396,17 @@ def analyze_data(data_file):
 
             // 移除处理中指示器
             removeProcessingIndicator();
+
+            // 添加思考完成步骤并开始隐藏思考框
+            if (thinkingBoxVisible) {
+                addThinkingCompleteStep();
+            }
+
+            // 一旦开始创建AI回复容器，立即隐藏思考框
+            if (thinkingBoxVisible) {
+                console.log('🎬 AI开始回复，立即隐藏思考框');
+                hideThinkingBox();
+            }
 
             // 创建隔离的AI消息容器
             const aiMessageId = addStreamMessage('', 'ai');
@@ -3858,20 +4537,7 @@ def analyze_data(data_file):
                 return processed;
             }
 
-            // 平滑滚动到底部
-            function scrollToBottomSmooth() {
-                if (currentPage === 'workspace') {
-                    requestAnimationFrame(() => {
-                        const messagesContainer = document.getElementById('chatMessages');
-                        if (messagesContainer) {
-                            messagesContainer.scrollTo({
-                                top: messagesContainer.scrollHeight,
-                                behavior: 'smooth'
-                            });
-                        }
-                    });
-                }
-            }
+            // 移除，已移至全局作用域
 
             // 主要的流式数据处理循环
             while (true) {
@@ -3914,6 +4580,11 @@ def analyze_data(data_file):
                         if (streamContent) {
                             streamContent.textContent = fullResponse;
                         }
+                    }
+
+                    // 隐藏思考框
+                    if (thinkingBoxVisible) {
+                        hideThinkingBox();
                     }
 
                     // 检查是否有待处理的增强信息（当流式读取完成时）
@@ -3965,12 +4636,6 @@ def analyze_data(data_file):
                                 // 任务分类结果
                                 console.log('🧭 任务分类:', data.task_type);
                                 fullResponse += '\n\n' + data.message;
-                                renderMarkdownRealtime(fullResponse);
-                                
-                            } else if (data.type === 'validation_progress') {
-                                // 验证进度
-                                console.log('✅ 验证进度:', data.status);
-                                fullResponse += '\n\n📋 ' + data.message;
                                 renderMarkdownRealtime(fullResponse);
                                 
                             } else if (data.type === 'node_update') {
@@ -4039,6 +4704,11 @@ def analyze_data(data_file):
 
             // 移除处理中指示器
             removeProcessingIndicator();
+            
+            // 隐藏思考框
+            if (thinkingBoxVisible) {
+                hideThinkingBox();
+            }
 
             // 添加错误消息
             addMessage(`❌ **连接失败**\n\n无法连接到AI服务: ${error.message}`, 'ai');
@@ -4127,10 +4797,17 @@ ${improvements}
     function handleRealtimeAgentMessage(data) {
         console.log('🔄 处理实时Agent消息:', data.type);
 
-        // 生成消息唯一ID
-        const messageId = `${data.type}-${data.timestamp}-${data.session_id}`;
+        // 生成消息唯一ID - 包含更多标识信息避免误判重复
+        let messageId = `${data.type}-${data.timestamp}-${data.session_id}`;
+        
+        // 对于node_progress类型，添加节点名称和状态来确保唯一性
+        if (data.type === 'node_progress' && data.data) {
+            const node = data.data.node || 'unknown';
+            const status = data.data.status || 'unknown';
+            messageId = `${data.type}-${node}-${status}-${data.timestamp}-${data.session_id}`;
+        }
 
-        // 防止重复处理同一条消息
+        // 防止重复处理同一条消息 - 但允许不同状态的进度消息
         if (processedMessages.has(messageId)) {
             console.log('⚠️ 跳过重复消息:', messageId);
             return;
@@ -4158,50 +4835,107 @@ ${improvements}
                 handleRealtimeAgentHandoff(data.data);
                 break;
 
-            case 'tool_start':
-                console.log('🔧 收到工具开始消息:', data.data);
-                addAgentMessage('tool-start', '🔧', '工具调用',
-                    data.data.message || `开始调用工具: ${data.data.tool_name}`);
-                handleRealtimeToolStart(data.data);
+            case 'node_progress':
+                console.log('🔄 收到节点进度消息:', data.data);
+                const progressData = data.data;
+                updateNodeStatus(progressData.node, progressData.status, progressData.message);
                 break;
 
-            case 'tool_end':
-                console.log('🔧 收到工具结束消息:', data.data);
-                addAgentMessage('tool-end', '✅', '工具完成',
-                    data.data.message || `工具调用完成: ${data.data.tool_name}`);
-                handleRealtimeToolEnd(data.data);
+            case 'validation_progress':
+                console.log('✅ 收到验证进度消息:', data.data);
+                const validationData = data.data;
+                updateNodeStatus(validationData.node, validationData.status, validationData.message);
                 break;
 
-            case 'code_found':
-                console.log('✅ 收到代码找到消息:', data.data);
-                addAgentMessage('code-found', '💡', '代码找到',
-                    data.data.message || '成功找到代码');
-                handleRealtimeCodeFound(data.data);
+            case 'workflow_start':
+                console.log('🚀 收到工作流开始消息:', data.data);
+                // 工作流开始时立即显示思考框
+                if (!thinkingBoxVisible) {
+                    console.log('🎬 工作流开始，显示思考框');
+                    showThinkingBox();
+                }
+                if (data.data && data.data.message) {
+                    updateThinkingStep('workflow', 'started', data.data.message);
+                }
                 break;
 
-            case 'code_error':
-                console.log('❌ 收到代码错误消息:', data.data);
-                addAgentMessage('code-error', '❌', '代码错误',
-                    data.data.message || '代码处理出错');
-                handleRealtimeCodeError(data.data);
+            case 'node_status':
+                console.log('📊 收到节点状态消息:', data.data);
+                const nodeStatusData = data.data;
+                updateNodeStatus(nodeStatusData.node || nodeStatusData.node_name, 
+                                nodeStatusData.status, 
+                                nodeStatusData.message || nodeStatusData.description || '节点执行中');
                 break;
 
-            case 'code_update':
-                console.log('🔄 收到代码更新消息:', data.data);
-                addAgentMessage('code-update', '✨', '代码更新',
-                    data.data.message || '模型增强完成，代码已更新');
-                handleRealtimeCodeUpdate(data.data);
+            case 'original_code':
+                console.log('📄 收到原始代码消息:', data.data);
+                displayOriginalCode(data.data);
                 break;
 
-            case 'agent_end':
-                console.log('🏁 收到Agent结束消息:', data.data);
-                addAgentMessage('agent-end', '🏁', 'Agent完成',
-                    data.data.message || 'Agent处理完成');
-                handleRealtimeAgentEnd(data.data);
+            case 'tool_progress':
+                console.log('🔧 收到工具调用进度消息:', data.data);
+                handleToolProgressMessage(data.data);
+                break;
+
+            case 'agent_decision':
+                console.log('🤖 收到Agent决策消息:', data.data);
+                handleAgentDecisionMessage(data.data);
+                break;
+
+            case 'agent_complete':
+                console.log('✅ 收到Agent完成消息:', data.data);
+                handleAgentCompleteMessage(data.data);
                 break;
 
             default:
                 console.warn('⚠️ 未知的实时消息类型:', data.type);
+        }
+    }
+
+    // ===== 工具监控消息处理 =====
+    function handleToolProgressMessage(data) {
+        console.log('🔧 处理工具调用进度:', data);
+        
+        // 根据工具调用动作类型处理
+        if (data.action === 'start') {
+            // 工具开始调用
+            const message = data.message || `🔧 正在使用工具: ${data.tool_name}`;
+            updateThinkingStep(`tool_${data.tool_name}`, 'started', message);
+            
+        } else if (data.action === 'complete') {
+            // 工具调用完成
+            const message = data.message || `✅ 工具执行完成 (${data.duration}秒)`;
+            updateThinkingStep(`tool_${data.tool_name}`, 'completed', message);
+            
+        } else if (data.action === 'error') {
+            // 工具调用出错
+            const message = `❌ 工具执行失败: ${data.error}`;
+            updateThinkingStep(`tool_${data.tool_name}`, 'error', message);
+        }
+    }
+
+    function handleAgentDecisionMessage(data) {
+        console.log('🤖 处理Agent决策:', data);
+        
+        // 根据决策动作类型处理
+        if (data.action === 'thinking') {
+            // Agent开始思考
+            updateThinkingStep(`${data.agent_type}_thinking`, 'started', data.message);
+            
+        } else if (data.action === 'tool_selected') {
+            // Agent选择了工具
+            const message = data.message || `🎯 选择工具: ${data.tool_name}`;
+            updateThinkingStep(`${data.agent_type}_decision`, 'processing', message);
+        }
+    }
+
+    function handleAgentCompleteMessage(data) {
+        console.log('✅ 处理Agent完成:', data);
+        
+        // Agent任务完成
+        if (data.action === 'finished') {
+            const message = data.message || `✅ ${data.agent_type}智能体任务完成`;
+            updateThinkingStep(`${data.agent_type}_complete`, 'completed', message);
         }
     }
 
@@ -5232,6 +5966,317 @@ def optimize_data_processing():
         }, 15000);
     }
 
+    // ===== 滚动功能 =====
+    
+    /**
+     * 平滑滚动到底部
+     */
+    function scrollToBottomSmooth() {
+        requestAnimationFrame(() => {
+            const messagesContainer = document.getElementById('chatMessages');
+            if (messagesContainer) {
+                messagesContainer.scrollTo({
+                    top: messagesContainer.scrollHeight,
+                    behavior: 'smooth'
+                });
+            }
+        });
+    }
+    
+    // ===== 思考框管理系统 =====
+    
+    /**
+     * 显示思考框
+     */
+    function showThinkingBox() {
+        console.log('🎯 showThinkingBox 被调用', {
+            thinkingBoxVisible,
+            currentThinkingMessageId,
+            timestamp: Date.now()
+        });
+        
+        // 如果已经有思考框显示，直接返回，不要重复创建
+        if (thinkingBoxVisible && currentThinkingMessageId) {
+            // 检查DOM中是否真的存在思考框
+            const existingThinking = document.getElementById(currentThinkingMessageId);
+            if (existingThinking) {
+                console.log('⚠️ 思考框已存在，跳过重复创建', currentThinkingMessageId);
+                return;
+            } else {
+                console.log('⚠️ 思考框状态显示存在但DOM中找不到，重置状态');
+                thinkingBoxVisible = false;
+                currentThinkingMessageId = null;
+                thinkingSteps.clear();
+            }
+        }
+        
+        // 清理任何可能遗留的思考框
+        const existingThinkingBoxes = document.querySelectorAll('.message.thinking');
+        if (existingThinkingBoxes.length > 0) {
+            console.log(`🧹 发现 ${existingThinkingBoxes.length} 个遗留的思考框，清理中...`);
+            existingThinkingBoxes.forEach(box => box.remove());
+        }
+        
+        // 清空步骤状态
+        thinkingSteps.clear();
+        
+        // 创建思考过程消息
+        const messagesContainer = document.getElementById('chatMessages');
+        if (!messagesContainer) {
+            console.error('❌ 找不到消息容器');
+            return;
+        }
+        
+        // 生成唯一ID
+        currentThinkingMessageId = 'thinking-' + Date.now() + '-' + Math.random().toString(36).substring(7);
+        console.log('🆔 生成新的思考框ID:', currentThinkingMessageId);
+        
+        // 创建思考消息元素
+        const thinkingMessage = document.createElement('div');
+        thinkingMessage.className = 'message thinking';
+        thinkingMessage.id = currentThinkingMessageId;
+        thinkingMessage.innerHTML = `
+            <div class="thinking-header">
+                <div class="thinking-title">
+                    🤔 Running中...
+                    <div class="thinking-spinner"></div>
+                </div>
+            </div>
+            <div class="thinking-content" id="thinkingContent-${currentThinkingMessageId}">
+                <!-- 步骤将通过 updateThinkingStep() 动态添加 -->
+            </div>
+        `;
+        
+        // 找到最后一个非思考框消息，插入在其后
+        const allMessages = messagesContainer.querySelectorAll('.message');
+        let insertAfter = null;
+        
+        // 从后往前找到最后一个用户或AI消息
+        for (let i = allMessages.length - 1; i >= 0; i--) {
+            const msg = allMessages[i];
+            if (!msg.classList.contains('thinking') && !msg.classList.contains('processing-indicator')) {
+                insertAfter = msg;
+                break;
+            }
+        }
+        
+        if (insertAfter) {
+            // 在最后一个对话消息后插入
+            insertAfter.parentNode.insertBefore(thinkingMessage, insertAfter.nextSibling);
+            console.log('📍 思考框插入在最后一个对话消息之后');
+        } else {
+            // 如果没有找到对话消息，添加到容器末尾
+            messagesContainer.appendChild(thinkingMessage);
+            console.log('📍 思考框添加到容器末尾');
+        }
+        
+        // 确认DOM添加成功
+        const addedElement = document.getElementById(currentThinkingMessageId);
+        if (!addedElement) {
+            console.error('❌ 思考框添加到DOM失败');
+            return;
+        }
+        
+        // 滚动到底部
+        scrollToBottomSmooth();
+        
+        thinkingBoxVisible = true;
+        console.log('✅ 思考过程消息显示成功', currentThinkingMessageId);
+    }
+    
+    /**
+     * 隐藏思考框
+     */
+    function hideThinkingBox() {
+        console.log('🔄 hideThinkingBox 被调用', {
+            thinkingBoxVisible,
+            currentThinkingMessageId
+        });
+        
+        if (!thinkingBoxVisible || !currentThinkingMessageId) {
+            console.log('⚠️ 思考框已隐藏或不存在，跳过隐藏操作');
+            return;
+        }
+        
+        const thinkingMessage = document.getElementById(currentThinkingMessageId);
+        if (!thinkingMessage) {
+            console.log('⚠️ 思考框DOM元素不存在，直接重置状态');
+            thinkingBoxVisible = false;
+            thinkingSteps.clear();
+            currentThinkingMessageId = null;
+            return;
+        }
+        
+        // 立即重置状态变量，避免状态不一致
+        thinkingBoxVisible = false;
+        thinkingSteps.clear();
+        const messageId = currentThinkingMessageId;
+        currentThinkingMessageId = null;
+        
+        console.log('✅ 思考框状态已重置');
+        
+        // 添加隐藏动画类
+        thinkingMessage.classList.add('hiding');
+        
+        // 延迟移除DOM元素
+        setTimeout(() => {
+            if (thinkingMessage && thinkingMessage.parentNode) {
+                thinkingMessage.parentNode.removeChild(thinkingMessage);
+                console.log('🗑️ 思考框DOM元素已移除:', messageId);
+            }
+        }, 500);
+        console.log('✅ 隐藏思考过程消息');
+    }
+    
+    /**
+     * 添加或更新思考步骤
+     */
+    function updateThinkingStep(nodeName, status, message) {
+        console.log(`🔄 updateThinkingStep 调用:`, {
+            nodeName,
+            status,
+            message,
+            thinkingBoxVisible,
+            currentThinkingMessageId
+        });
+        
+        if (!thinkingBoxVisible || !currentThinkingMessageId) {
+            console.log('❌ 思考框不可见或ID不存在，跳过更新');
+            return;
+        }
+        
+        // 加入小延迟，确保DOM完全准备好
+        setTimeout(() => {
+            const thinkingContentId = `thinkingContent-${currentThinkingMessageId}`;
+            const thinkingContent = document.getElementById(thinkingContentId);
+            console.log(`🔍 查找思考内容容器: ${thinkingContentId}`, thinkingContent);
+            
+            if (!thinkingContent) {
+                console.error('❌ 未找到思考内容容器，尝试重新查找思考框');
+                const thinkingBox = document.getElementById(currentThinkingMessageId);
+                if (thinkingBox) {
+                    console.log('✅ 找到思考框，但内容容器缺失，重新创建');
+                    const newContent = document.createElement('div');
+                    newContent.className = 'thinking-content';
+                    newContent.id = thinkingContentId;
+                    thinkingBox.appendChild(newContent);
+                    processThinkingStep(newContent, nodeName, status, message);
+                } else {
+                    console.error('❌ 思考框本身也不存在');
+                }
+                return;
+            }
+            
+            processThinkingStep(thinkingContent, nodeName, status, message);
+        }, 50); // 50ms延迟确保DOM准备就绪
+    }
+    
+    /**
+     * 处理思考步骤更新的核心逻辑 - 替换式显示
+     */
+    function processThinkingStep(thinkingContent, nodeName, status, message) {
+        console.log(`🎯 processThinkingStep 执行:`, { nodeName, status, message });
+        
+        // 根据状态设置图标和样式
+        let icon = '';
+        let statusClass = '';
+        let detail = '';
+        
+        switch(status) {
+            case 'started':
+                icon = '🔄';
+                statusClass = 'current';
+                detail = '正在执行...';
+                break;
+            case 'processing':
+                icon = '⚙️';
+                statusClass = 'current';
+                detail = '处理中...';
+                break;
+            case 'completed':
+                icon = '✅';
+                statusClass = 'completed';
+                detail = '完成';
+                break;
+            case 'failed':
+                icon = '❌';
+                statusClass = 'failed';
+                detail = '失败';
+                break;
+            default:
+                icon = 'ℹ️';
+                statusClass = 'current';
+                detail = '进行中...';
+        }
+        
+        // 检查是否有现有的当前步骤
+        let currentStep = thinkingContent.querySelector('.thinking-step.current');
+        
+        if (currentStep && status !== 'completed' && status !== 'failed') {
+            // 如果有当前步骤且新状态不是完成状态，则替换内容
+            console.log(`🔄 替换当前步骤内容: ${message}`);
+            currentStep.innerHTML = `
+                <span class="thinking-step-icon">${icon}</span>
+                <div>
+                    <div class="thinking-step-text">${message || nodeName}</div>
+                    <div class="thinking-step-detail">${detail}</div>
+                </div>
+            `;
+        } else {
+            // 如果没有当前步骤，或者状态是完成/失败，创建新步骤
+            console.log(`✨ 创建新的思考步骤: ${nodeName} -> ${status}`);
+            
+            // 将之前的current步骤标记为完成
+            if (currentStep && (status === 'completed' || status === 'failed')) {
+                currentStep.classList.remove('current');
+                currentStep.classList.add('completed');
+                const iconEl = currentStep.querySelector('.thinking-step-icon');
+                const detailEl = currentStep.querySelector('.thinking-step-detail');
+                if (iconEl && !iconEl.textContent.includes('✅')) {
+                    iconEl.textContent = '✅';
+                }
+                if (detailEl) {
+                    detailEl.textContent = '完成';
+                }
+            }
+            
+            // 创建新步骤
+            const stepElement = document.createElement('div');
+            stepElement.className = `thinking-step ${statusClass}`;
+            stepElement.innerHTML = `
+                <span class="thinking-step-icon">${icon}</span>
+                <div>
+                    <div class="thinking-step-text">${message || nodeName}</div>
+                    <div class="thinking-step-detail">${detail}</div>
+                </div>
+            `;
+            
+            // 替换所有内容为新步骤（单一显示）
+            thinkingContent.innerHTML = '';
+            thinkingContent.appendChild(stepElement);
+            console.log(`✅ 思考框内容已替换为新步骤: ${message}`);
+        }
+        
+        // 滚动到底部以显示最新步骤
+        scrollToBottomSmooth();
+        
+        console.log(`🤔 思考步骤处理完成: ${nodeName} - ${status} - ${message}`);
+    }
+    
+    /**
+     * 添加思考完成步骤
+     */
+    function addThinkingCompleteStep() {
+        if (!thinkingBoxVisible) return;
+        
+        updateThinkingStep('final', 'completed', '分析完成，正在生成回复');
+        
+        // 2秒后自动隐藏
+        setTimeout(() => {
+            hideThinkingBox();
+        }, 2000);
+    }
+
     // ===== 通知系统 =====
     function showNotification(message, type = 'info', duration = 3000) {
         let notification = document.getElementById('statusNotification');
@@ -5322,6 +6367,118 @@ def optimize_data_processing():
     }
     
     /**
+     * 显示原始源代码
+     */
+    function displayOriginalCode(codeData) {
+        const messagesContainer = document.getElementById('chatMessages');
+        const codeDiv = document.createElement('div');
+        codeDiv.className = 'message ai original-code';
+        
+        // 提取代码数据
+        const {
+            table_name = '未知',
+            branch_name = '未知',
+            source_code = '',
+            file_name = '',
+            file_path = '',
+            language = 'sql',
+            base_tables = []
+        } = codeData;
+        
+        // 检测语言并设置对应的class
+        const languageClass = language === 'python' ? 'language-python' : 'language-sql';
+        const languageDisplay = language === 'python' ? 'Python' : 'SQL';
+        
+        codeDiv.innerHTML = `
+            <div class="original-code-header">
+                📄 <strong>原始代码获取成功</strong> - 表: ${table_name}
+                <div class="code-meta-info">
+                    <span class="meta-item">📁 ${file_name || '未知文件'}</span>
+                    <span class="meta-item">🌿 ${branch_name}</span>
+                    <span class="meta-item">💻 ${languageDisplay}</span>
+                    ${base_tables.length > 0 ? `<span class="meta-item">📊 底表: ${base_tables.slice(0, 3).join(', ')}${base_tables.length > 3 ? '...' : ''}</span>` : ''}
+                </div>
+            </div>
+            <pre><code class="${languageClass}">${escapeHtml(source_code)}</code></pre>
+            <div class="code-actions">
+                <button onclick="copyToClipboard('${escapeHtml(source_code).replace(/'/g, "\\'")}')">📋 复制代码</button>
+                <button onclick="showCodeInEditor('${escapeHtml(source_code).replace(/'/g, "\\'")}', '${table_name}')">📝 在编辑器中查看</button>
+            </div>
+        `;
+        messagesContainer.appendChild(codeDiv);
+        
+        // 应用语法高亮
+        if (typeof Prism !== 'undefined') {
+            Prism.highlightAllUnder(codeDiv);
+        }
+        
+        // 滚动到底部
+        messagesContainer.scrollTo({
+            top: messagesContainer.scrollHeight,
+            behavior: 'smooth'
+        });
+        
+        // 显示成功提示
+        showInfo(`已获取表 ${table_name} 的源代码`, 2000);
+    }
+    
+    /**
+     * 在编辑器中显示代码
+     */
+    function showCodeInEditor(code, tableName) {
+        // 如果当前不在workspace模式，切换到workspace模式
+        if (currentPage !== 'workspace') {
+            switchToWorkspaceMode('enhance');
+            
+            // 等待页面切换完成再设置代码
+            setTimeout(() => {
+                const codeEditor = document.getElementById('codeEditor');
+                const fileName = document.getElementById('fileName');
+                
+                if (codeEditor) {
+                    codeEditor.value = code;
+                    originalCode = code;
+                    codeEditor.style.opacity = '1';
+                }
+                
+                if (fileName) {
+                    fileName.textContent = `${tableName} - 原始代码`;
+                }
+                
+                // 显示代码面板
+                const codePanel = document.querySelector('.code-panel');
+                if (codePanel) {
+                    codePanel.classList.add('active');
+                }
+                
+                showInfo('代码已加载到编辑器', 1500);
+            }, 300);
+        } else {
+            // 已经在workspace模式，直接设置代码
+            const codeEditor = document.getElementById('codeEditor');
+            const fileName = document.getElementById('fileName');
+            
+            if (codeEditor) {
+                codeEditor.value = code;
+                originalCode = code;
+                codeEditor.style.opacity = '1';
+            }
+            
+            if (fileName) {
+                fileName.textContent = `${tableName} - 原始代码`;
+            }
+            
+            // 显示代码面板
+            const codePanel = document.querySelector('.code-panel');
+            if (codePanel) {
+                codePanel.classList.add('active');
+            }
+            
+            showInfo('代码已加载到编辑器', 1500);
+        }
+    }
+    
+    /**
      * 显示增强后的代码
      */
     function displayEnhancedCode(code, tableName) {
@@ -5385,18 +6542,47 @@ def optimize_data_processing():
      * 处理中断提示
      */
     function handleInterruptPrompt(prompt, nodeName) {
-        // 添加中断提示消息
+        // 添加中断提示消息，使用普通AI消息样式
         const messagesContainer = document.getElementById('chatMessages');
         const interruptDiv = document.createElement('div');
-        interruptDiv.className = 'message ai interrupt-prompt';
-        interruptDiv.innerHTML = `
-            <div class="interrupt-header">
-                💭 <strong>需要您的输入</strong> (${nodeName || '微调询问'})
-            </div>
-            <div class="interrupt-content">${escapeHtml(prompt)}</div>
-            <div class="interrupt-hint">请在下方输入框中提供您的反馈...</div>
-        `;
+        interruptDiv.className = 'message ai';
+        
+        try {
+            // 检查是否为markdown格式（包含markdown特征）
+            const isMarkdownFormat = /^#+\s|```[\s\S]*?```|\*\*[\s\S]*?\*\*|^\s*[-\*\+]|\[.*?\]\(.*?\)|^\s*\d+\./m.test(prompt);
+            
+            let processedContent;
+            if (isMarkdownFormat) {
+                // 使用markdown渲染
+                console.log('🔄 检测到markdown格式的中断提示，进行渲染');
+                processedContent = marked.parse(prompt);
+            } else {
+                // 普通文本处理
+                const naturalPrompt = `💭 ${escapeHtml(prompt)}\n\n请您在下方输入框中提供您的反馈或建议，然后点击发送。`;
+                processedContent = naturalPrompt.replace(/\n/g, '<br>');
+            }
+            
+            interruptDiv.innerHTML = `
+                <div class="avatar">🤖</div>
+                <div class="message-content">${processedContent}</div>
+            `;
+            
+        } catch (error) {
+            console.error('❌ 处理中断提示markdown失败，回退到纯文本:', error);
+            // 降级处理
+            const naturalPrompt = `💭 ${escapeHtml(prompt)}\n\n请您在下方输入框中提供您的反馈或建议，然后点击发送。`;
+            interruptDiv.innerHTML = `
+                <div class="avatar">🤖</div>
+                <div class="message-content">${naturalPrompt.replace(/\n/g, '<br>')}</div>
+            `;
+        }
+        
         messagesContainer.appendChild(interruptDiv);
+        
+        // 处理代码块（如果有）
+        setTimeout(() => {
+            processCodeBlocksInMessage(interruptDiv);
+        }, 50);
         
         // 标记等待中断响应
         window.waitingForInterruptResponse = true;
@@ -5405,8 +6591,8 @@ def optimize_data_processing():
         // 聚焦输入框
         document.getElementById('chatInput').focus();
         
-        // 更新输入框提示
-        document.getElementById('chatInput').placeholder = '请输入您的反馈或建议...';
+        // 更新输入框提示 - 使用更自然的提示
+        document.getElementById('chatInput').placeholder = '请回复上面的问题...';
         
         // 滚动到底部
         messagesContainer.scrollTo({
@@ -5419,11 +6605,24 @@ def optimize_data_processing():
      * 更新节点状态
      */
     function updateNodeStatus(nodeName, status, message) {
-        // 通过SocketIO已经收到了状态更新，这里可以显示在界面上
-        console.log(`节点 ${nodeName} 状态: ${status} - ${message}`);
+        console.log(`📊 节点 ${nodeName} 状态: ${status} - ${message}`);
         
-        // 可以选择性地在界面上显示节点状态
-        if (status === 'error') {
+        // 收到任何节点状态时，如果思考框不可见就显示它
+        if (!thinkingBoxVisible) {
+            console.log('🤔 首次收到节点状态，显示思考框');
+            showThinkingBox();
+        }
+        
+        // 更新思考步骤
+        if (thinkingBoxVisible) {
+            console.log(`🔄 更新思考步骤: ${nodeName} -> ${status}`);
+            updateThinkingStep(nodeName, status, message);
+        } else {
+            console.log('⚠️ 思考框不可见，跳过步骤更新');
+        }
+        
+        // 错误状态额外显示错误提示
+        if (status === 'failed' || status === 'error') {
             showError(`节点 ${nodeName} 执行失败: ${message}`, 5000);
         }
     }
@@ -5460,7 +6659,7 @@ def optimize_data_processing():
             socket.on('connect', function() {
                 console.log('🔗 SocketIO连接成功:', socket.id);
                 socketConnected = true;
-                showSuccess('实时通信连接成功', 2000);
+                // 已移除实时通信连接成功提示
 
                 if (currentSessionId) {
                     joinSession(currentSessionId);
@@ -5470,19 +6669,19 @@ def optimize_data_processing():
             socket.on('disconnect', function() {
                 console.log('🔌 SocketIO连接断开');
                 socketConnected = false;
-                showWarning('实时通信连接断开', 3000);
+                // 已移除实时通信连接断开提示
             });
 
             socket.on('connect_error', function(error) {
                 console.error('❌ SocketIO连接错误:', error);
                 socketConnected = false;
-                showError('实时通信连接失败', 3000);
+                // 已移除实时通信连接失败提示
             });
 
             socket.on('reconnect', function() {
                 console.log('🔄 SocketIO重连成功');
                 socketConnected = true;
-                showSuccess('实时通信已恢复', 2000);
+                // 已移除实时通信已恢复提示
 
                 if (currentSessionId) {
                     joinSession(currentSessionId);
@@ -5505,7 +6704,7 @@ def optimize_data_processing():
 
         } catch (error) {
             console.error('❌ 初始化SocketIO失败:', error);
-            showError('初始化实时通信失败', 3000);
+            // 已移除实时通信初始化失败提示
         }
     }
 
@@ -5685,9 +6884,194 @@ def optimize_data_processing():
         sanitize: false
     });
 
+    // ===== 首页输入框功能 =====
+    
+    /**
+     * 自动调整textarea高度
+     */
+    function autoResizeSearchInput(element) {
+        element.style.height = 'auto';
+        element.style.height = Math.min(element.scrollHeight, 200) + 'px';
+        
+        // 根据内容调整border-radius
+        if (element.scrollHeight > 60) {
+            element.style.borderRadius = '20px';
+        } else {
+            element.style.borderRadius = '30px';
+        }
+    }
+
+    /**
+     * 应用输入建议 - 全局函数
+     */
+    window.applySuggestion = function(suggestionElement) {
+        const suggestionText = suggestionElement.querySelector('.suggestion-text').textContent;
+        const searchInput = document.getElementById('searchInput');
+        
+        // 设置输入框内容
+        searchInput.value = suggestionText;
+        
+        // 调整高度
+        autoResizeSearchInput(searchInput);
+        
+        // 聚焦输入框
+        searchInput.focus();
+        
+        // 不再在点击建议时隐藏，保持建议可见直到发送消息
+        
+        // 添加一个小的视觉反馈
+        suggestionElement.style.transform = 'scale(0.95)';
+        setTimeout(() => {
+            suggestionElement.style.transform = 'translateY(-2px)';
+        }, 150);
+        
+        console.log('🎯 应用建议:', suggestionText);
+    };
+
+    // ===== 聊天输入框功能 =====
+    
+    /**
+     * 自动调整聊天输入框高度
+     */
+    function autoResizeChatInput(element) {
+        element.style.height = 'auto';
+        element.style.height = Math.min(element.scrollHeight, 200) + 'px';
+    }
+
+    /**
+     * 应用聊天输入建议 - 全局函数
+     */
+    window.applyChatSuggestion = function(suggestionElement) {
+        const suggestionText = suggestionElement.querySelector('.suggestion-text').textContent;
+        const chatInput = document.getElementById('chatInput');
+        
+        // 设置输入框内容
+        chatInput.value = suggestionText;
+        
+        // 调整高度
+        autoResizeChatInput(chatInput);
+        
+        // 聚焦输入框
+        chatInput.focus();
+        
+        // 隐藏建议
+        hideChatSuggestions();
+        
+        // 添加一个小的视觉反馈
+        suggestionElement.style.transform = 'scale(0.95)';
+        setTimeout(() => {
+            suggestionElement.style.transform = 'translateY(-1px)';
+        }, 150);
+        
+        console.log('💬 应用聊天建议:', suggestionText);
+    };
+
+    /**
+     * 隐藏输入建议
+     */
+    function hideSuggestions() {
+        const suggestions = document.getElementById('inputSuggestions');
+        if (suggestions) {
+            suggestions.classList.add('hidden');
+        }
+    }
+
+    /**
+     * 显示输入建议
+     */
+    function showSuggestions() {
+        const suggestions = document.getElementById('inputSuggestions');
+        if (suggestions) {
+            suggestions.classList.remove('hidden');
+        }
+    }
+
+    /**
+     * 隐藏聊天输入建议
+     */
+    function hideChatSuggestions() {
+        const suggestions = document.getElementById('chatInputSuggestions');
+        if (suggestions) {
+            suggestions.classList.add('hidden');
+        }
+    }
+
+    /**
+     * 显示聊天输入建议
+     */
+    function showChatSuggestions() {
+        const suggestions = document.getElementById('chatInputSuggestions');
+        if (suggestions) {
+            suggestions.classList.remove('hidden');
+        }
+    }
+
+    // 记录聊天建议是否应该永久隐藏（发送消息后）
+    let chatSuggestionsPermanentlyHidden = false;
+
+    /**
+     * 检查聊天输入建议可见性
+     */
+    function checkChatSuggestionsVisibility() {
+        const chatInput = document.getElementById('chatInput');
+        const suggestions = document.getElementById('chatInputSuggestions');
+        
+        if (!chatInput || !suggestions) return;
+        
+        // 如果建议被永久隐藏，不再显示
+        if (chatSuggestionsPermanentlyHidden) {
+            hideChatSuggestions();
+            return;
+        }
+        
+        // 只在输入框有内容或获得焦点时隐藏建议，不主动显示建议
+        if (chatInput.value.trim() || document.activeElement === chatInput) {
+            hideChatSuggestions();
+        }
+        // 移除else分支，不再主动显示建议，避免点击空白处重新显示
+    }
+
+    /**
+     * 检查是否应该显示建议 - 首页建议保持一直可见
+     */
+    function checkSuggestionsVisibility() {
+        const suggestions = document.getElementById('inputSuggestions');
+        
+        if (!suggestions) return;
+        
+        // 首页建议保持一直显示，只有在发送消息时才隐藏
+        if (currentPage === 'homepage') {
+            showSuggestions();
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
         // 设置初始页面状态
         currentPage = 'homepage';
+        
+        // 初始化聊天建议状态
+        chatSuggestionsPermanentlyHidden = false;
+        
+        // 初始化首页输入框功能
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput) {
+            // 自动调整高度
+            searchInput.addEventListener('input', function() {
+                autoResizeSearchInput(this);
+                // 不再在输入时检查建议可见性，保持一直显示
+            });
+            
+            // 键盘事件处理
+            searchInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    document.getElementById('searchBtn').click();
+                }
+            });
+            
+            // 初始化时确保建议可见
+            checkSuggestionsVisibility();
+        }
 
         const codeEditor = document.getElementById('codeEditor');
         originalCode = codeEditor.value;
@@ -5703,18 +7087,29 @@ def optimize_data_processing():
 
         // 聊天输入框事件
         const chatInput = document.getElementById('chatInput');
-        chatInput.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-            }
-        });
+        if (chatInput) {
+            chatInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
 
-        chatInput.addEventListener('input', function() {
-            autoResizeTextarea(this);
-            const sendBtn = document.getElementById('sendBtn');
-            sendBtn.disabled = this.value.trim() === '' || isProcessing;
-        });
+            chatInput.addEventListener('input', function() {
+                autoResizeChatInput(this);
+                checkChatSuggestionsVisibility();
+                const sendBtn = document.getElementById('sendBtn');
+                sendBtn.disabled = this.value.trim() === '' || isProcessing;
+            });
+            
+            // 焦点事件 - 只保留focus事件，移除blur事件避免点击空白处重新显示建议
+            chatInput.addEventListener('focus', function() {
+                checkChatSuggestionsVisibility();
+            });
+            
+            // 初始化时检查建议可见性
+            checkChatSuggestionsVisibility();
+        }
 
         // 聚焦搜索框
         document.getElementById('searchInput').focus();
@@ -5725,16 +7120,13 @@ def optimize_data_processing():
             initializeSocketIO();
         } else {
             console.log('ℹ️ SocketIO库未加载，使用基础通知系统');
-            showWarning('实时通信库未加载，部分功能可能受限', 3000);
+            // 已移除实时通信库未加载提示
         }
 
         // 启动Agent消息保护
         startAgentMessageProtection();
 
-        // 测试通知系统
-        setTimeout(() => {
-            showSuccess('系统已准备就绪', 1500);
-        }, 1000);
+        // 通知系统初始化完成（已移除系统准备就绪提示）
 
         // 定期清理消息去重记录
         setInterval(() => {

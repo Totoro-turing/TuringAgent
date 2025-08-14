@@ -18,6 +18,7 @@ from .validation.validation_check import validation_check_node
 from .validation.model_validation import (
     edw_model_add_data_validation_node
 )
+from .validation.validation_subgraph import create_validation_subgraph
 
 # 增强节点
 from .enhancement.model_enhance import edw_model_enhance_node
@@ -52,6 +53,7 @@ __all__ = [
     # 验证节点
     'validation_check_node',
     'edw_model_add_data_validation_node',
+    'create_validation_subgraph',
     
     # 增强节点
     'edw_model_enhance_node',

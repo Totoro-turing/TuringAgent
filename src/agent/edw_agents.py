@@ -116,7 +116,7 @@ class EDWAgentManager:
         logger.info("验证代理创建完成（使用业务记忆）")
     
     async def async_initialize(self):
-        """异步初始化：包含需要异步获取的代码增强智能体"""
+        """异步初始化：包含需要异步获取的代码增强智能体和功能智能体"""
         if self._async_initialized:
             return
             
@@ -127,6 +127,9 @@ class EDWAgentManager:
         try:
             # 异步创建代码增强智能体
             await self._create_code_enhancement_agent()
+            
+            # 异步创建功能智能体
+            await self._create_function_agent()
             
             self._async_initialized = True
             logger.info("EDW智能代理管理器异步初始化完成")
@@ -192,14 +195,95 @@ class EDWAgentManager:
             )
             logger.info("代码增强智能体fallback版本创建完成（使用业务记忆）")
     
+    async def _create_function_agent(self):
+        """创建功能智能体 - 负责处理各种EDW工具性任务"""
+        logger.info("正在初始化功能智能体...")
+        
+        try:
+            # 收集所有工具
+            all_tools = []
+            
+            # 1. 获取MCP工具
+            try:
+                from src.mcp.mcp_client import get_mcp_tools
+                async with get_mcp_tools() as mcp_tools:
+                    if mcp_tools:
+                        all_tools.extend(mcp_tools)
+                        logger.info(f"功能智能体获取到 {len(mcp_tools)} 个MCP工具")
+            except Exception as e:
+                logger.warning(f"功能智能体MCP工具获取失败: {e}")
+            
+            # 2. 获取系统工具
+            try:
+                from src.graph.tools.wrappers import create_all_tools
+                system_tools = create_all_tools()
+                all_tools.extend(system_tools)
+                logger.info(f"功能智能体获取到 {len(system_tools)} 个系统工具")
+            except Exception as e:
+                logger.warning(f"功能智能体系统工具获取失败: {e}")
+            
+            # 3. 创建功能智能体提示词
+            function_prompt = """你是一个专业的EDW功能助手，拥有丰富的工具来帮助用户完成各种EDW相关任务。
+
+你可以使用的工具包括：
+1. **命名工具**：
+   - suggest_attribute_names: 为物理字段名提供属性名称建议
+   - batch_standardize_fields: 批量标准化字段名称
+   - evaluate_attribute_name: 评估属性名称质量
+
+2. **数据库工具**（通过MCP）：
+   - 执行SQL查询
+   - 查看表结构
+   - 导出笔记本代码
+
+3. **文档工具**：
+   - create_confluence_doc: 创建Confluence文档
+   - update_confluence_doc: 更新Confluence文档
+
+4. **ADB工具**：
+   - update_adb_notebook: 更新Azure Databricks笔记本
+   - read_adb_notebook: 读取Azure Databricks笔记本
+
+5. **邮件工具**：
+   - send_review_email: 发送评审邮件
+   - build_email_template: 构建邮件模板
+
+请根据用户的需求，选择合适的工具来完成任务。
+记住：
+- 准确理解用户需求
+- 选择最合适的工具
+- 提供清晰的执行结果
+- 如果任务复杂，可以组合使用多个工具"""
+            
+            # 创建功能智能体
+            self.agents['function'] = create_react_agent(
+                model=self.llm,
+                tools=all_tools,
+                prompt=function_prompt,
+                checkpointer=self.business_checkpointer
+            )
+            
+            logger.info(f"功能智能体创建完成，共 {len(all_tools)} 个工具")
+            
+        except Exception as e:
+            logger.error(f"功能智能体创建失败: {e}")
+            # 创建fallback版本
+            self.agents['function'] = create_react_agent(
+                model=self.llm,
+                tools=[],
+                prompt="你是一个EDW功能助手，但目前工具加载失败，只能提供建议。",
+                checkpointer=self.business_checkpointer
+            )
+            logger.info("功能智能体fallback版本创建完成")
+    
     def get_agent(self, agent_name: str):
         """获取指定的代理"""
         if not self._initialized:
             self.initialize()
         
-        # 如果请求代码增强智能体但未异步初始化，抛出提示错误
-        if agent_name == 'code_enhancement' and not self._async_initialized:
-            raise ValueError("代码增强智能体需要异步初始化。请先调用 async_initialize() 方法。")
+        # 如果请求代码增强智能体或功能智能体但未异步初始化，抛出提示错误
+        if agent_name in ['code_enhancement', 'function'] and not self._async_initialized:
+            raise ValueError(f"{agent_name}智能体需要异步初始化。请先调用 async_initialize() 方法。")
         
         if agent_name not in self.agents:
             raise ValueError(f"代理 '{agent_name}' 不存在。可用代理: {list(self.agents.keys())}")

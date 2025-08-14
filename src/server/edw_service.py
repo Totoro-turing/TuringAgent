@@ -14,7 +14,9 @@ import uuid
 from typing import AsyncGenerator, Dict, Any, Optional, List
 from dataclasses import dataclass
 from datetime import datetime
-from src.graph.edw_graph import guid, EDWState, SessionManager
+from src.graph.edw_graph_v2 import guid
+from src.models.states import EDWState
+from src.graph.utils.session import SessionManager
 from src.agent.edw_agents import get_agent_manager
 from langchain.schema.messages import HumanMessage, AIMessage, SystemMessage
 import logging
@@ -53,15 +55,24 @@ class EDWStreamService:
         """
 
         try:
-            # 1. 创建初始状态
+            # 1. 创建初始状态 - 🎯 关键：传入socket队列
             initial_state = {
                 "messages": [HumanMessage(content=user_message)],
                 "user_id": self.config.user_id,
-                "type": None  # 由导航节点决定任务类型
+                "type": None,  # 由导航节点决定任务类型
+                # 🎯 Socket通信支持 - 用于验证子图实时进度发送
+                "socket_queue": self.config.socket_queue,
+                "session_id": self.config.session_id
             }
 
-            # 2. 获取LangGraph配置
-            graph_config = SessionManager.get_config(self.config.user_id, "main")
+            # 2. 获取带监控的LangGraph配置
+            graph_config = SessionManager.get_config_with_monitor(
+                user_id=self.config.user_id,
+                agent_type="main",
+                state=initial_state,
+                node_name="workflow",
+                enhanced_monitoring=True
+            )
             self.current_thread_id = graph_config["configurable"]["thread_id"]
 
             # 3. 通过SocketIO推送工作流开始事件
@@ -78,38 +89,112 @@ class EDWStreamService:
 
             self.workflow_active = True
 
-            # 4. 流式执行图
-            async for chunk in guid.astream(initial_state, graph_config, stream_mode="updates"):
-                # 处理每个节点的输出
-                for node_name, node_output in chunk.items():
-
-                    # 保存当前状态
-                    self.current_state = node_output
-
-                    # 通过SocketIO推送节点状态
-                    if self.config.socket_queue:
-                        await self._push_node_update(node_name, node_output)
-
-                    # 根据节点类型处理流式输出
-                    async for output_chunk in self._process_node_output(node_name, node_output):
-                        yield output_chunk
-
-                    # 检查是否有中断
-                    if self._check_interrupt(node_output):
-                        self.is_interrupted = True
-                        self.interrupt_data = node_output
-
-                        # 返回中断提示
+            # 4. 流式执行图 - 使用组合模式获取节点路由和自定义数据
+            async for stream_data in guid.astream(initial_state, graph_config, stream_mode=["updates", "custom"]):
+                # 组合模式返回 (mode, chunk) 元组
+                mode, chunk = stream_data
+                
+                # 🔍 调试：记录所有stream数据的结构
+                logger.debug(f"收到stream数据: mode='{mode}', type={type(chunk)}, content={str(chunk)[:200] if chunk else 'None'}...")
+                
+                # 处理custom模式的数据 - 来自主图层面的get_stream_writer()
+                if mode == "custom":
+                    logger.info(f"🎯 收到主图自定义数据: {chunk}")
+                    
+                    # 直接将custom数据转发为进度事件
+                    if isinstance(chunk, dict) and chunk.get("type") == "progress":
                         yield {
-                            "type": "interrupt",
-                            "prompt": self._extract_interrupt_prompt(node_output),
-                            "node": node_name,
+                            "type": "main_progress",
+                            "node": chunk.get("node", "unknown"),
+                            "status": chunk.get("status", "processing"),
+                            "message": chunk.get("message", ""),
+                            "progress": chunk.get("progress", 0),
                             "session_id": self.config.session_id
                         }
+                    continue  # custom数据处理完成，继续下一个
+                
+                # 处理updates模式的数据 - 正常的节点路由信息
+                if mode == "updates":
+                    # 处理每个节点的输出
+                    for node_name, node_output in chunk.items():
+                        
+                        # 🔍 调试：记录所有chunk的结构
+                        logger.debug(f"收到节点chunk: node_name='{node_name}', type={type(node_output)}, content={str(node_output)[:200] if node_output else 'None'}...")
+                        
+                        # 🎯 Socket进度通信已启用，不需要检测嵌入式进度数据
+                        # 验证节点会直接通过socket发送实时进度到前端
+                        
+                        # 特殊处理__interrupt__节点
+                        if node_name == "__interrupt__":
+                            logger.info(f"检测到中断节点: {node_name}")
+                            self.is_interrupted = True
+                            
+                            # 处理中断信号 - 可能是tuple或其他类型
+                            if isinstance(node_output, tuple):
+                                # 将tuple转换为dict格式
+                                interrupt_data = {
+                                    "interrupt": True,
+                                    "data": node_output,
+                                    "node": "__interrupt__",
+                                    "prompt": node_output[0].value['prompt']
+                                }
+                                self.interrupt_data = interrupt_data
+                                
+                                # 生成中断提示 - 使用从node_output中提取的真实prompt
+                                yield {
+                                    "type": "interrupt",
+                                    "prompt": node_output[0].value['prompt'],
+                                    "node": node_name,
+                                    "session_id": self.config.session_id
+                                }
+                            else:
+                                # 如果是其他格式，尝试提取中断信息
+                                self.interrupt_data = node_output if isinstance(node_output, dict) else {"data": node_output}
+                                
+                                prompt = self._extract_interrupt_prompt(self.interrupt_data) if isinstance(self.interrupt_data, dict) else "需要您的输入以继续"
+                                
+                                yield {
+                                    "type": "interrupt",
+                                    "prompt": prompt,
+                                    "node": node_name,
+                                    "session_id": self.config.session_id
+                                }
+                            
+                            logger.info(f"工作流在节点 {node_name} 中断，等待用户输入")
+                            return  # 中断后停止执行
+                        
+                        # 确保其他节点输出是dict类型
+                        if not isinstance(node_output, dict):
+                            logger.warning(f"节点 {node_name} 输出不是字典类型: {type(node_output)}，跳过处理")
+                            continue
 
-                        # 中断后暂停执行
-                        logger.info(f"工作流在节点 {node_name} 中断，等待用户输入")
-                        return
+                        # 保存当前状态
+                        self.current_state = node_output
+
+                        # 通过SocketIO推送节点状态
+                        if self.config.socket_queue:
+                            await self._push_node_update(node_name, node_output)
+
+                        # 根据节点类型处理流式输出
+                        async for output_chunk in self._process_node_output(node_name, node_output):
+                            yield output_chunk
+
+                        # 检查是否有中断
+                        if self._check_interrupt(node_output):
+                            self.is_interrupted = True
+                            self.interrupt_data = node_output
+
+                            # 返回中断提示
+                            yield {
+                                "type": "interrupt",
+                                "prompt": self._extract_interrupt_prompt(node_output),
+                                "node": node_name,
+                                "session_id": self.config.session_id
+                            }
+
+                            # 中断后暂停执行
+                            logger.info(f"工作流在节点 {node_name} 中断，等待用户输入")
+                            return
 
             # 工作流完成
             self.workflow_active = False
@@ -161,13 +246,22 @@ class EDWStreamService:
             return
 
         try:
-            # 获取配置
-            graph_config = SessionManager.get_config(self.config.user_id, "main")
+            # 获取带监控的配置
+            graph_config = SessionManager.get_config_with_monitor(
+                user_id=self.config.user_id,
+                agent_type="main",
+                state=resume_state,
+                node_name="workflow_resume",
+                enhanced_monitoring=True
+            )
 
-            # 构建恢复状态 - 注意这里的状态更新
+            # 构建恢复状态 - 🎯 关键：包含socket队列
             resume_state = {
                 "user_refinement_input": user_input,  # 微调输入
-                "messages": [HumanMessage(content=user_input)]  # 添加用户消息
+                "messages": [HumanMessage(content=user_input)],  # 添加用户消息
+                # 🎯 Socket通信支持 - 确保恢复执行时也能发送进度
+                "socket_queue": self.config.socket_queue,
+                "session_id": self.config.session_id
             }
 
             # 重置中断状态
@@ -186,33 +280,56 @@ class EDWStreamService:
                     }
                 )
 
-            # 继续流式执行
-            async for chunk in guid.astream(resume_state, graph_config, stream_mode="updates"):
-                for node_name, node_output in chunk.items():
-
-                    # 保存当前状态
-                    self.current_state = node_output
-
-                    # 推送节点更新
-                    if self.config.socket_queue:
-                        await self._push_node_update(node_name, node_output)
-
-                    # 处理节点输出
-                    async for output_chunk in self._process_node_output(node_name, node_output):
-                        yield output_chunk
-
-                    # 再次检查中断
-                    if self._check_interrupt(node_output):
-                        self.is_interrupted = True
-                        self.interrupt_data = node_output
-
+            # 继续流式执行 - 使用组合模式
+            async for stream_data in guid.astream(resume_state, graph_config, stream_mode=["updates", "custom"]):
+                # 组合模式返回 (mode, chunk) 元组
+                mode, chunk = stream_data
+                
+                # 处理custom模式的数据
+                if mode == "custom":
+                    logger.info(f"🎯 恢复执行收到主图自定义数据: {chunk}")
+                    
+                    # 直接将custom数据转发为进度事件
+                    if isinstance(chunk, dict) and chunk.get("type") == "progress":
                         yield {
-                            "type": "interrupt",
-                            "prompt": self._extract_interrupt_prompt(node_output),
-                            "node": node_name,
+                            "type": "main_progress",
+                            "node": chunk.get("node", "unknown"),
+                            "status": chunk.get("status", "processing"),
+                            "message": chunk.get("message", ""),
+                            "progress": chunk.get("progress", 0),
                             "session_id": self.config.session_id
                         }
-                        return
+                    continue
+                
+                # 处理updates模式的数据
+                if mode == "updates":
+                    for node_name, node_output in chunk.items():
+                        
+                        # 🎯 Socket进度通信已启用，验证节点直接发送进度
+
+                        # 保存当前状态
+                        self.current_state = node_output
+
+                        # 推送节点更新
+                        if self.config.socket_queue:
+                            await self._push_node_update(node_name, node_output)
+
+                        # 处理节点输出
+                        async for output_chunk in self._process_node_output(node_name, node_output):
+                            yield output_chunk
+
+                        # 再次检查中断
+                        if self._check_interrupt(node_output):
+                            self.is_interrupted = True
+                            self.interrupt_data = node_output
+
+                            yield {
+                                "type": "interrupt",
+                                "prompt": self._extract_interrupt_prompt(node_output),
+                                "node": node_name,
+                                "session_id": self.config.session_id
+                            }
+                            return
 
             # 完成
             yield {
@@ -231,7 +348,7 @@ class EDWStreamService:
 
     async def _process_node_output(self, node_name: str, node_output: Dict) -> AsyncGenerator[Dict, None]:
         """
-        处理不同节点的输出，生成相应的流式数据
+        处理不同舒点的输出，生成相应的流式数据
 
         Args:
             node_name: 节点名称
@@ -251,6 +368,11 @@ class EDWStreamService:
 
         # 聊天节点 - 流式返回AI响应（普通聊天）
         elif node_name == "chat_node":
+            async for text_chunk in self._stream_chat_content(node_output):
+                yield text_chunk
+
+        # 功能节点 - 流式返回功能执行结果
+        elif node_name == "function_node":
             async for text_chunk in self._stream_chat_content(node_output):
                 yield text_chunk
 
@@ -446,6 +568,7 @@ class EDWStreamService:
         metadata_map = {
             "navigate_node": {"icon": "🧭", "label": "任务分类", "color": "#4CAF50"},
             "chat_node": {"icon": "💬", "label": "智能对话", "color": "#2196F3"},
+            "function_node": {"icon": "⚡", "label": "功能执行", "color": "#673AB7"},
             "validation_subgraph": {"icon": "✅", "label": "信息验证", "color": "#FF9800"},
             "attribute_review_subgraph": {"icon": "📝", "label": "属性命名Review", "color": "#00BCD4"},
             "attribute_review": {"icon": "✏️", "label": "属性评估", "color": "#00ACC1"},
@@ -518,6 +641,51 @@ class EDWStreamService:
             "is_interrupted": self.is_interrupted,
             "has_interrupt_data": self.interrupt_data is not None
         }
+
+    def _has_validation_progress(self, node_output: Any) -> bool:
+        """检测节点输出是否包含验证进度信息"""
+        return (isinstance(node_output, dict) and 
+                "validation_progress" in node_output and
+                isinstance(node_output["validation_progress"], dict))
+    
+    async def _process_validation_progress(self, node_output: Dict) -> AsyncGenerator[Dict, None]:
+        """处理验证进度数据，转换为前端进度事件"""
+        try:
+            progress_data = node_output["validation_progress"]
+            
+            # 提取进度信息
+            node = progress_data.get("node", "unknown")
+            status = progress_data.get("status", "processing")
+            message = progress_data.get("message", "")
+            progress = progress_data.get("progress", 0.0)
+            
+            # 转换为前端progress事件
+            yield {
+                "type": "validation_step",
+                "node": node,
+                "status": status,
+                "message": message,
+                "progress": progress,
+                "session_id": self.config.session_id,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # 通过SocketIO推送验证步骤更新
+            if self.config.socket_queue:
+                self.config.socket_queue.send_message(
+                    self.config.session_id,
+                    "validation_step_progress",
+                    {
+                        "node": node,
+                        "status": status,
+                        "message": message,
+                        "progress": progress,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+                
+        except Exception as e:
+            logger.error(f"处理验证进度数据失败: {e}")
 
     def cleanup(self):
         """清理服务资源"""

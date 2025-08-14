@@ -8,9 +8,10 @@ import uuid
 from langgraph.graph import StateGraph, START, END
 from src.models.states import EDWState
 from src.agent.edw_agents import get_shared_checkpointer
-from src.graph.validation_nodes import create_validation_subgraph
+# Validation subgraph import moved to nodes module
 
 # 导入所有节点（从新的包结构）
+from src.graph.nodes.core.function import edw_function_handler_node as edw_function_node
 from src.graph.nodes import (
     # 核心节点
     navigate_node,
@@ -25,6 +26,7 @@ from src.graph.nodes import (
     # 验证节点
     validation_check_node,
     edw_model_add_data_validation_node,
+    create_validation_subgraph,
     # 增强节点
     edw_model_enhance_node,
     edw_model_addition_node,
@@ -122,9 +124,7 @@ def create_model_dev_graph():
         .add_edge("email_node", END)
     )
     
-    return model_dev_graph.compile(
-        checkpointer=get_shared_checkpointer()
-    )
+    return model_dev_graph.compile()
 
 
 def create_main_graph():
@@ -138,18 +138,18 @@ def create_main_graph():
         StateGraph(EDWState)
         .add_node("navigate_node", navigate_node)
         .add_node("chat_node", chat_node)
+        .add_node("function_node", edw_function_node)
         .add_node("model_node", edw_model_node)
         .add_node("model_dev_node", model_dev)
         .add_edge(START, "navigate_node")
-        .add_conditional_edges("navigate_node", routing_fun, ["chat_node", "model_node"])
+        .add_conditional_edges("navigate_node", routing_fun, ["chat_node", "function_node", "model_node"])
+        .add_edge("function_node", END)
         .add_edge("model_node", "model_dev_node")
         .add_edge("model_dev_node", END)
         .add_edge("chat_node", END)
     )
     
-    return guid_graph.compile(
-        checkpointer=get_shared_checkpointer()
-    )
+    return guid_graph.compile()
 
 
 # 导出主图

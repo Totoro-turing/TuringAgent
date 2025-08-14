@@ -105,7 +105,7 @@ async def get_mcp_tools():
         yield tools
 
 # 为了向后兼容保留的函数
-async def execute_sql_via_mcp(query: str) -> str:
+async def execute_sql_via_mcp(query: str, mode: str = "batch") -> str:
     """通过MCP执行SQL查询"""
     async with get_mcp_client() as client:
         if client:
@@ -119,7 +119,7 @@ async def execute_sql_via_mcp(query: str) -> str:
                         break
                 
                 if sql_tool:
-                    result = await sql_tool.ainvoke({"query": query})
+                    result = await sql_tool.ainvoke({"query": query, "mode": mode})
                     return str(result)
                 else:
                     logger.error("未找到SQL执行工具")
