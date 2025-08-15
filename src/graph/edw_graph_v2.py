@@ -24,14 +24,14 @@ from src.graph.nodes import (
     refinement_loop_routing,
     route_after_validation_check,
     # 验证节点
-    validation_check_node,
     edw_model_add_data_validation_node,
     create_validation_subgraph,
     # 增强节点
     edw_model_enhance_node,
     edw_model_addition_node,
     # 微调节点
-    refinement_inquiry_node,
+    refinement_context_node,
+    refinement_interrupt_node,
     refinement_intent_node,
     code_refinement_node,
     # 外部集成节点
@@ -41,7 +41,6 @@ from src.graph.nodes import (
     edw_adb_update_node,
     # Review子图
     create_review_subgraph,
-    create_attribute_review_subgraph,
 )
 
 # 配置日志
@@ -58,23 +57,20 @@ def create_model_dev_graph():
     # 创建代码review子图实例
     review_subgraph = create_review_subgraph()
     
-    # 创建属性名称review子图实例
-    attribute_review_subgraph = create_attribute_review_subgraph()
     
     model_dev_graph = (
         StateGraph(EDWState)
         # 验证节点
         .add_node("model_enhance_data_validation_node", validation_subgraph)
-        .add_node("validation_check_node", validation_check_node)
         .add_node("model_add_data_validation_node", edw_model_add_data_validation_node)
         # Review节点
-        .add_node("attribute_review_subgraph", attribute_review_subgraph)
         .add_node("code_review_subgraph", review_subgraph)
         # 增强节点
         .add_node("model_enhance_node", edw_model_enhance_node)
         .add_node("model_addition_node", edw_model_addition_node)
         # 微调节点
-        .add_node("refinement_inquiry_node", refinement_inquiry_node)
+        .add_node("refinement_context_node", refinement_context_node)
+        .add_node("refinement_interrupt_node", refinement_interrupt_node)
         .add_node("refinement_intent_node", refinement_intent_node)
         .add_node("code_refinement_node", code_refinement_node)
         # 外部集成节点
@@ -88,15 +84,8 @@ def create_model_dev_graph():
             "model_enhance_data_validation_node", 
             "model_add_data_validation_node"
         ])
-        # 验证流程
-        .add_edge("model_enhance_data_validation_node", "validation_check_node")
-        .add_conditional_edges("validation_check_node", route_after_validation_check, [
-            "attribute_review_subgraph",
-            "model_enhance_data_validation_node",
-            END
-        ])
-        # 属性review -> 增强
-        .add_edge("attribute_review_subgraph", "model_enhance_node")
+        # 验证流程 - 直接从验证子图路由
+        .add_edge("model_enhance_data_validation_node", "model_enhance_node")
         .add_edge("model_add_data_validation_node", "model_addition_node")
         
         # 增强完成后的路由
@@ -106,15 +95,16 @@ def create_model_dev_graph():
         ])
         
         # 代码review -> 微调询问
-        .add_edge("code_review_subgraph", "refinement_inquiry_node")
+        .add_edge("code_review_subgraph", "refinement_context_node")
+        .add_edge("refinement_context_node", "refinement_interrupt_node")
         
         # 微调循环流程
-        .add_edge("refinement_inquiry_node", "refinement_intent_node")
+        .add_edge("refinement_interrupt_node", "refinement_intent_node")
         .add_conditional_edges("refinement_intent_node", refinement_loop_routing, [
             "code_refinement_node",
             "github_push_node"
         ])
-        .add_edge("code_refinement_node", "refinement_inquiry_node")
+        .add_edge("code_refinement_node", "refinement_context_node")
         
         # 后续流程
         .add_edge("model_addition_node", "github_push_node")
@@ -124,7 +114,9 @@ def create_model_dev_graph():
         .add_edge("email_node", END)
     )
     
-    return model_dev_graph.compile()
+    # 使用business checkpointer编译，支持interrupt状态保存
+    checkpointer = get_shared_checkpointer("business")
+    return model_dev_graph.compile(checkpointer=checkpointer)
 
 
 def create_main_graph():
@@ -149,7 +141,10 @@ def create_main_graph():
         .add_edge("chat_node", END)
     )
     
-    return guid_graph.compile()
+    # 🎯 关键修复：主图和子图必须使用同一个checkpointer才能实现interrupt恢复
+    # 使用business checkpointer，与model_dev_graph保持一致
+    checkpointer = get_shared_checkpointer("business")
+    return guid_graph.compile(checkpointer=checkpointer)
 
 
 # 导出主图

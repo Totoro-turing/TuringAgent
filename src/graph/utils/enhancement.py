@@ -25,6 +25,7 @@ async def execute_code_enhancement_task(enhancement_mode: str, **kwargs) -> dict
             # 从state中获取微调所需的参数
             if state:
                 current_code = state.get("enhance_code", "")
+                table_name = state.get("table_name", "")
                 user_feedback = state.get("refinement_requirements", "")
                 original_context = {
                     "logic_detail": state.get("logic_detail", ""),
@@ -77,6 +78,51 @@ async def execute_code_enhancement_task(enhancement_mode: str, **kwargs) -> dict
         
         if enhancement_result.get("enhanced_code"):
             logger.info(f"代码增强成功 ({enhancement_mode}): {table_name}")
+            
+            # 🎯 发送增强代码到前端显示（适用于所有增强模式）
+            if state:
+                session_id = state.get("session_id", "unknown")
+                from src.server.socket_manager import get_session_socket
+                from datetime import datetime
+                
+                socket_queue = get_session_socket(session_id)
+                
+                if socket_queue:
+                    try:
+                        # 获取额外信息
+                        fields = state.get("fields", kwargs.get("fields", []))
+                        fields_count = len(fields) if fields else 0
+                        enhancement_type = state.get("enhancement_type", "")
+                        model_name = state.get("model_attribute_name", "")
+                        code_path = kwargs.get("code_path", state.get("code_path", ""))
+                        adb_path = kwargs.get("adb_code_path", state.get("adb_code_path", ""))
+                        
+                        socket_queue.send_message(
+                            session_id,
+                            "enhanced_code",
+                            {
+                                "type": "enhanced_code",
+                                "content": enhancement_result.get("enhanced_code"),
+                                "table_name": table_name,
+                                "create_table_sql": enhancement_result.get("new_table_ddl"),
+                                "alter_table_sql": enhancement_result.get("alter_statements"),
+                                "fields_count": fields_count,
+                                "enhancement_type": enhancement_type,
+                                "enhancement_mode": enhancement_mode,  # 标记是初始增强还是微调
+                                "model_name": model_name,
+                                "file_path": code_path,
+                                "adb_path": adb_path,
+                                "optimization_summary": enhancement_result.get("optimization_summary", ""),
+                                "timestamp": datetime.now().isoformat()
+                            }
+                        )
+                        logger.info(f"✅ Socket发送增强代码成功: {table_name} (模式: {enhancement_mode}, 长度: {len(enhancement_result.get('enhanced_code', ''))} 字符)")
+                    except Exception as e:
+                        logger.warning(f"Socket发送增强代码失败: {e}")
+                else:
+                    if not socket_queue:
+                        logger.debug(f"Socket队列不存在: {session_id}")
+            
             return {
                 "success": True,
                 "enhanced_code": enhancement_result.get("enhanced_code"),

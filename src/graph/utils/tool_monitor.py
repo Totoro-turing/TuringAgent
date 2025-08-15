@@ -240,38 +240,14 @@ class EnhancedToolMonitor(ToolCallMonitor):
         prompts: List[str], 
         **kwargs: Any
     ) -> Any:
-        """LLM开始时触发"""
-        try:
-            if self.enable_detailed_logging:
-                send_progress(
-                    self.state,
-                    self.node_name,
-                    "processing",
-                    "🧠 AI正在分析和决策...",
-                    0.0,
-                    {
-                        "action": "llm_thinking"
-                    }
-                )
-        except Exception as e:
-            logger.error(f"监控LLM开始失败: {e}")
+        """LLM开始时触发 - 已禁用监控以减少消息量"""
+        # 注释掉LLM监控以减少消息过多的问题
+        pass
     
     def on_llm_end(self, response: LLMResult, **kwargs: Any) -> Any:
-        """LLM完成时触发"""
-        try:
-            if self.enable_detailed_logging:
-                send_progress(
-                    self.state,
-                    self.node_name,
-                    "processing", 
-                    "💭 AI分析完成，准备执行...",
-                    0.0,
-                    {
-                        "action": "llm_complete"
-                    }
-                )
-        except Exception as e:
-            logger.error(f"监控LLM完成失败: {e}")
+        """LLM完成时触发 - 已禁用监控以减少消息量"""
+        # 注释掉LLM监控以减少消息过多的问题
+        pass
     
     def on_agent_action(self, action: AgentAction, **kwargs: Any) -> Any:
         """增强的Agent动作监控"""

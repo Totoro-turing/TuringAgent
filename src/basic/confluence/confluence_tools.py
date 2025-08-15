@@ -81,20 +81,46 @@ class ConfluenceWorkflowTools:
             improvements = context.get("improvements", [])
             alter_sql = context.get("alter_sql", "")
             
+            # 验证table_name
+            if not table_name:
+                logger.error("❌ table_name为空，无法收集文档信息")
+                return {"error": "table_name不能为空", "template": "basic_template"}
+            
             logger.info(f"🔍 开始收集模型文档信息: {table_name}")
             
             # 解析表名获取schema信息
             schema_info = self._parse_table_name(table_name)
             
-            # 收集字段信息
-            field_info = await self._collect_field_information(table_name, enhanced_code, alter_sql)
+            # 优先使用上游传递的字段信息，不再进行二次提取
+            fields_from_context = context.get("fields", [])
+            if fields_from_context:
+                # 使用上游传递的详细字段信息
+                field_info = {
+                    "existing_fields": [],
+                    "new_fields": fields_from_context,
+                    "modified_fields": [],
+                    "field_summary": {
+                        "new_fields_count": len(fields_from_context),
+                        "total_estimated": len(fields_from_context),
+                        "code_lines": len(enhanced_code.split('\n')) if enhanced_code else 0
+                    }
+                }
+                logger.info(f"✅ 使用上游传递的 {len(fields_from_context)} 个字段信息")
+            else:
+                # 如果没有上游字段信息，才回退到老的解析方式
+                logger.warning("⚠️ 上游没有传递字段信息，使用遗留解析方式")
+                field_info = await self._collect_field_information(table_name, enhanced_code, alter_sql)
+            
+            # 获取模型属性名称
+            model_name = context.get("model_name", "")
             
             # 生成文档内容
             doc_info = {
-                "title": self._generate_page_title(table_name, explanation),
+                "title": self._generate_page_title(table_name, explanation, model_name),
                 "template": "enhanced_model_template",
                 "schema_info": schema_info,
                 "field_info": field_info,
+                "model_name": model_name,  # 添加模型名称
                 "enhancement_details": {
                     "explanation": explanation,
                     "improvements": improvements,
@@ -108,7 +134,7 @@ class ConfluenceWorkflowTools:
                     "enhancement_timestamp": datetime.now().isoformat()
                 },
                 "stakeholders": self._get_model_stakeholders(schema_info["schema"]),
-                "review_info": self._generate_review_info(table_name, schema_info["schema"])
+                "review_info": self._generate_review_info(table_name, schema_info["schema"], model_name)
             }
             
             logger.info(f"✅ 模型文档信息收集完成: {table_name}")
@@ -129,8 +155,19 @@ class ConfluenceWorkflowTools:
             创建结果
         """
         try:
-            table_name = doc_info["schema_info"]["table_name"]
-            schema = doc_info["schema_info"]["schema"]
+            # 安全获取schema_info
+            schema_info = doc_info.get("schema_info")
+            if not schema_info:
+                # 如果没有schema_info，尝试从model_config获取
+                model_config = doc_info.get("model_config", {})
+                table_name = model_config.get("table_name", "unknown_table")
+                if '.' in table_name:
+                    schema = table_name.split('.')[0]
+                else:
+                    schema = "default"
+            else:
+                table_name = schema_info.get("table_name", schema_info.get("full_name", "unknown_table"))
+                schema = schema_info.get("schema", "default")
             
             logger.info(f"📄 开始创建Confluence页面: {table_name}")
             
@@ -205,6 +242,7 @@ class ConfluenceWorkflowTools:
             table = table_name
             
         return {
+            "table_name": table_name,  # 添加table_name字段
             "full_name": table_name,
             "schema": schema,
             "table": table,
@@ -212,8 +250,10 @@ class ConfluenceWorkflowTools:
         }
     
     async def _collect_field_information(self, table_name: str, enhanced_code: str, alter_sql: str) -> Dict[str, Any]:
-        """收集字段信息"""
+        """收集字段信息 - 遗留解析方式（只在上游没有字段信息时使用）"""
         try:
+            logger.warning("⚠️ 使用遗留解析方式收集字段信息，可能不准确")
+            
             field_info = {
                 "existing_fields": [],
                 "new_fields": [],
@@ -303,29 +343,53 @@ class ConfluenceWorkflowTools:
         
         return stakeholder_mapping.get(schema, stakeholder_mapping["default"])
     
-    def _generate_page_title(self, table_name: str, explanation: str) -> str:
-        """生成页面标题"""
+    def _generate_page_title(self, table_name: str, explanation: str, model_name: str = "") -> str:
+        """生成页面标题 - 固定格式: 2025-08-14: Finance Data Model Review - 模型属性名称"""
         date_str = datetime.now().strftime('%Y-%m-%d')
         
-        # 从说明中提取关键词
-        if "增强" in explanation or "enhance" in explanation.lower():
-            action = "Model Enhancement"
-        elif "新增" in explanation or "add" in explanation.lower():
-            action = "Field Addition" 
-        elif "优化" in explanation or "optimize" in explanation.lower():
-            action = "Model Optimization"
+        # 解析schema信息决定业务域
+        if '.' in table_name:
+            schema = table_name.split('.')[0].lower()
         else:
-            action = "Model Update"
+            schema = 'default'
+            
+        # 根据schema确定业务域
+        if 'fi' in schema:
+            domain = "Finance"
+        elif 'hr' in schema:
+            domain = "HR"
+        elif 'sc' in schema:
+            domain = "Supply Chain"
+        elif 'mk' in schema:
+            domain = "Marketing"
+        else:
+            domain = "Data"
         
-        return f"{date_str}: {table_name} - {action}"
+        # 优先使用模型属性名称，如果没有则使用表名
+        display_name = model_name if model_name else (
+            table_name.split('.', 1)[1] if '.' in table_name else table_name
+        )
+            
+        return f"{date_str}: {domain} Data Model Review - {display_name}"
     
-    def _generate_review_info(self, table_name: str, schema: str) -> Dict[str, Any]:
+    def _generate_review_info(self, table_name: str, schema: str, model_name: str = "") -> Dict[str, Any]:
         """生成审核信息"""
         stakeholders = self._get_model_stakeholders(schema)
         
+        # 生成Entity List：schema+模型属性名称
+        if model_name:
+            # 优先使用模型属性名称
+            entity_list = f"{schema.lower()}.{model_name}"
+        elif '.' in table_name:
+            schema_part, model_part = table_name.split('.', 1)
+            # 使用小写schema + 模型名称
+            entity_list = f"{schema_part.lower()}.{model_part}"
+        else:
+            entity_list = table_name
+        
         return {
             "requirement_description": f"对 {table_name} 进行模型增强和优化",
-            "entity_list": table_name,
+            "entity_list": entity_list,
             "review_requesters": stakeholders["requesters"],
             "reviewer_mandatory": stakeholders["reviewers"][0] if stakeholders["reviewers"] else "@EDW Reviewer",
             "review_date": datetime.now().strftime('%Y年%m月%d日'),
@@ -357,10 +421,10 @@ class ConfluenceWorkflowTools:
                 "review_date": doc_info["review_info"]["review_date"],
                 "status_tags": status_tags,
                 "dataflow": {
-                    "source": f"Original {doc_info['schema_info']['table_name']}",
-                    "target": f"Enhanced {doc_info['schema_info']['table_name']}"
+                    "source": f"Original {doc_info['schema_info'].get('table_name', doc_info['schema_info'].get('full_name', 'unknown'))}",
+                    "target": f"Enhanced {doc_info['schema_info'].get('table_name', doc_info['schema_info'].get('full_name', 'unknown'))}"
                 },
-                "model_fields": self._format_fields_for_confluence(doc_info["field_info"]),
+                "model_fields": self._format_fields_for_confluence(doc_info["field_info"], doc_info["schema_info"]["schema"], doc_info.get("model_name", ""), doc_info["schema_info"]["table_name"]),
                 "enhancement_summary": doc_info["enhancement_details"]["explanation"],
                 "improvements": doc_info["enhancement_details"]["improvements"],
                 "new_fields_info": doc_info["field_info"].get("new_fields", [])
@@ -379,19 +443,31 @@ class ConfluenceWorkflowTools:
             logger.error(f"❌ 生成页面内容失败: {e}")
             return f"<p>生成页面内容失败: {str(e)}</p>"
     
-    def _format_fields_for_confluence(self, field_info: Dict[str, Any]) -> List[Dict[str, str]]:
+    def _format_fields_for_confluence(self, field_info: Dict[str, Any], schema: str = "default", model_name: str = "", table_name: str = "") -> List[Dict[str, str]]:
         """格式化字段信息用于Confluence表格"""
         formatted_fields = []
         
+        # 确定模型名称，如果没有则使用默认值
+        display_model_name = model_name if model_name else "Enhanced Model"
+        
         # 新增字段
         for field in field_info.get("new_fields", []):
+            # 获取字段信息 - 从state中fields正确获取
+            physical_name = field.get("physical_name", field.get("name", ""))  # 字段物理名（保持原样）
+            attribute_name = field.get("attribute_name", "")  # 字段属性名称（英文）
+            data_type = field.get("data_type", field.get("type", "string"))  # 数据类型
+            
+            # 如果没有attribute_name，使用physical_name作为备选
+            if not attribute_name:
+                attribute_name = physical_name
+            
             formatted_fields.append({
-                "schema": "新增",
-                "mode_name": "Enhanced Model",
-                "table_name": field.get("name", ""),
-                "attribute_name": field.get("name", "").replace('_', ' ').title(),
-                "column_name": field.get("name", ""),
-                "column_type": field.get("type", "string"),
+                "schema": schema,  # 使用实际的数据库schema
+                "mode_name": display_model_name,  # 使用模型名称
+                "table_name": table_name.lower() if table_name else "unknown",  # 使用实际表名（小写）
+                "attribute_name": attribute_name,  # 字段的属性名称（英文）
+                "column_name": physical_name,  # 字段的物理名称
+                "column_type": data_type,  # 数据类型
                 "pk": "N"
             })
         
@@ -428,13 +504,14 @@ class ConfluenceWorkflowTools:
                 new_fields = doc_info["field_info"].get("new_fields", [])
                 if new_fields:
                     sections.append("<h4>新增字段列表</h4>")
-                    headers = ["字段名", "类型", "说明"]
+                    headers = ["物理字段名", "属性名称", "数据类型", "说明"]
                     rows = []
                     for field in new_fields:
                         rows.append([
-                            field.get("name", ""),
-                            field.get("type", ""),
-                            "新增字段"
+                            field.get("physical_name", field.get("name", "")),
+                            field.get("attribute_name", ""),
+                            field.get("data_type", field.get("type", "")),
+                            field.get("comment", "新增字段")
                         ])
                     
                     field_table = cm.create_table_from_data(headers, rows)

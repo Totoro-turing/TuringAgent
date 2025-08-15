@@ -15,6 +15,7 @@ from src.agent.edw_agents import (
 )
 from src.config import get_config_manager
 from src.graph.utils.session import SessionManager
+from src.server.socket_manager import get_session_socket
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,9 @@ def navigate_node(state: EDWState):
     
     prompt_template = config_manager.get_prompt("navigation_prompt")
     prompt = PromptTemplate.from_template(prompt_template)
-    
+
+
+
     try:
         # 使用带监控的配置管理器 - 导航智能体独立memory
         config = SessionManager.get_config_with_monitor(
@@ -46,7 +49,22 @@ def navigate_node(state: EDWState):
             node_name="navigation",
             enhanced_monitoring=True
         )
-        
+        session_id = state.get("session_id", "unknown")
+
+    # 🎯 通过全局socket管理器获取socket队列
+        socket_queue = get_session_socket(session_id)
+
+    # 🎯 Socket直接发送（主要方案）
+        socket_queue.send_message(
+            session_id,
+            "validation_progress",
+            {
+                "node": "navigate_node",
+                "status": "processing",
+                "message": "正在分析您的需求",
+                "progress": 0.1
+            }
+        )
         # 获取消息内容
         last_message = state["messages"][-1]
         if isinstance(last_message, str):

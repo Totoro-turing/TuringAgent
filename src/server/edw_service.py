@@ -14,11 +14,13 @@ import uuid
 from typing import AsyncGenerator, Dict, Any, Optional, List
 from dataclasses import dataclass
 from datetime import datetime
+from langchain.schema.messages import HumanMessage, AIMessage, SystemMessage
+from langgraph.types import Command
 from src.graph.edw_graph_v2 import guid
 from src.models.states import EDWState
 from src.graph.utils.session import SessionManager
 from src.agent.edw_agents import get_agent_manager
-from langchain.schema.messages import HumanMessage, AIMessage, SystemMessage
+from src.server.socket_manager import register_session_socket, get_session_socket
 import logging
 
 logger = logging.getLogger(__name__)
@@ -29,7 +31,7 @@ class EDWStreamConfig:
     """EDW流式服务配置"""
     session_id: str
     user_id: str
-    socket_queue: Optional[Any] = None  # SocketIOAgentMessageQueue（可选）
+    socket_queue: Optional[Any] = None  # SocketIOMessageSender（可选）
 
 
 class EDWStreamService:
@@ -42,6 +44,14 @@ class EDWStreamService:
         self.interrupt_data = None
         self.current_state = None
         self.workflow_active = False
+        
+        # 🎯 注册socket队列到全局管理器
+        if config.socket_queue:
+            register_session_socket(config.session_id, config.socket_queue)
+    
+    def _get_socket_queue(self):
+        """获取当前会话的socket队列"""
+        return get_session_socket(self.config.session_id)
 
     async def stream_workflow(self, user_message: str) -> AsyncGenerator[Dict, None]:
         """
@@ -55,13 +65,12 @@ class EDWStreamService:
         """
 
         try:
-            # 1. 创建初始状态 - 🎯 关键：传入socket队列
+            # 1. 创建初始状态 - 🎯 socket_queue已移至全局管理器
             initial_state = {
                 "messages": [HumanMessage(content=user_message)],
                 "user_id": self.config.user_id,
                 "type": None,  # 由导航节点决定任务类型
-                # 🎯 Socket通信支持 - 用于验证子图实时进度发送
-                "socket_queue": self.config.socket_queue,
+                # 🎯 Socket通信支持 - socket_queue通过全局管理器查找
                 "session_id": self.config.session_id
             }
 
@@ -76,8 +85,9 @@ class EDWStreamService:
             self.current_thread_id = graph_config["configurable"]["thread_id"]
 
             # 3. 通过SocketIO推送工作流开始事件
-            if self.config.socket_queue:
-                self.config.socket_queue.send_message(
+            socket_queue = self._get_socket_queue()
+            if socket_queue:
+                socket_queue.send_message(
                     self.config.session_id,
                     "workflow_start",
                     {
@@ -90,29 +100,14 @@ class EDWStreamService:
             self.workflow_active = True
 
             # 4. 流式执行图 - 使用组合模式获取节点路由和自定义数据
-            async for stream_data in guid.astream(initial_state, graph_config, stream_mode=["updates", "custom"]):
+            async for stream_data in guid.astream(initial_state, graph_config, stream_mode=["updates"]):
                 # 组合模式返回 (mode, chunk) 元组
                 mode, chunk = stream_data
                 
                 # 🔍 调试：记录所有stream数据的结构
                 logger.debug(f"收到stream数据: mode='{mode}', type={type(chunk)}, content={str(chunk)[:200] if chunk else 'None'}...")
                 
-                # 处理custom模式的数据 - 来自主图层面的get_stream_writer()
-                if mode == "custom":
-                    logger.info(f"🎯 收到主图自定义数据: {chunk}")
-                    
-                    # 直接将custom数据转发为进度事件
-                    if isinstance(chunk, dict) and chunk.get("type") == "progress":
-                        yield {
-                            "type": "main_progress",
-                            "node": chunk.get("node", "unknown"),
-                            "status": chunk.get("status", "processing"),
-                            "message": chunk.get("message", ""),
-                            "progress": chunk.get("progress", 0),
-                            "session_id": self.config.session_id
-                        }
-                    continue  # custom数据处理完成，继续下一个
-                
+
                 # 处理updates模式的数据 - 正常的节点路由信息
                 if mode == "updates":
                     # 处理每个节点的输出
@@ -200,8 +195,9 @@ class EDWStreamService:
             self.workflow_active = False
 
             # 推送完成事件
-            if self.config.socket_queue:
-                self.config.socket_queue.send_message(
+            socket_queue = self._get_socket_queue()
+            if socket_queue:
+                socket_queue.send_message(
                     self.config.session_id,
                     "workflow_complete",
                     {
@@ -236,8 +232,13 @@ class EDWStreamService:
         Yields:
             Dict: SSE格式的数据块
         """
+        
+        logger.info(f"🔄 resume_from_interrupt被调用，会话: {self.config.session_id[:8]}")
+        logger.info(f"🔍 当前中断状态: is_interrupted={self.is_interrupted}")
+        logger.info(f"📝 用户输入: {user_input[:50]}...")
 
         if not self.is_interrupted:
+            logger.warning(f"⚠️ 尝试恢复未中断的会话: {self.config.session_id[:8]}")
             yield {
                 "type": "error",
                 "error": "当前没有待处理的中断",
@@ -246,31 +247,29 @@ class EDWStreamService:
             return
 
         try:
-            # 获取带监控的配置
+            # 🎯 关键：使用Command恢复中断执行
+            # 注意：使用resume参数传递用户输入，这样interrupt()函数会返回这个值
+            resume_command = Command(
+                resume=user_input,  # 将用户输入作为resume值，interrupt()会返回这个字符串
+            )
+
+            # 获取带监控的配置（保持原有thread_id以恢复状态）
             graph_config = SessionManager.get_config_with_monitor(
                 user_id=self.config.user_id,
                 agent_type="main",
-                state=resume_state,
+                state={"session_id": self.config.session_id},  # 仅用于监控
                 node_name="workflow_resume",
                 enhanced_monitoring=True
             )
-
-            # 构建恢复状态 - 🎯 关键：包含socket队列
-            resume_state = {
-                "user_refinement_input": user_input,  # 微调输入
-                "messages": [HumanMessage(content=user_input)],  # 添加用户消息
-                # 🎯 Socket通信支持 - 确保恢复执行时也能发送进度
-                "socket_queue": self.config.socket_queue,
-                "session_id": self.config.session_id
-            }
 
             # 重置中断状态
             self.is_interrupted = False
             self.interrupt_data = None
 
             # 推送恢复事件
-            if self.config.socket_queue:
-                self.config.socket_queue.send_message(
+            socket_queue = self._get_socket_queue()
+            if socket_queue:
+                socket_queue.send_message(
                     self.config.session_id,
                     "workflow_resume",
                     {
@@ -280,38 +279,57 @@ class EDWStreamService:
                     }
                 )
 
-            # 继续流式执行 - 使用组合模式
-            async for stream_data in guid.astream(resume_state, graph_config, stream_mode=["updates", "custom"]):
+            # 🎯 使用Command继续流式执行
+            async for stream_data in guid.astream(resume_command, graph_config, stream_mode=["updates"]):
                 # 组合模式返回 (mode, chunk) 元组
                 mode, chunk = stream_data
-                
-                # 处理custom模式的数据
-                if mode == "custom":
-                    logger.info(f"🎯 恢复执行收到主图自定义数据: {chunk}")
-                    
-                    # 直接将custom数据转发为进度事件
-                    if isinstance(chunk, dict) and chunk.get("type") == "progress":
-                        yield {
-                            "type": "main_progress",
-                            "node": chunk.get("node", "unknown"),
-                            "status": chunk.get("status", "processing"),
-                            "message": chunk.get("message", ""),
-                            "progress": chunk.get("progress", 0),
-                            "session_id": self.config.session_id
-                        }
-                    continue
-                
                 # 处理updates模式的数据
                 if mode == "updates":
                     for node_name, node_output in chunk.items():
                         
-                        # 🎯 Socket进度通信已启用，验证节点直接发送进度
+                        # 🎯 处理特殊节点（如__interrupt__）的tuple输出
+                        if node_name == "__interrupt__":
+                            logger.info(f"恢复执行中检测到中断节点: {node_name}")
+                            # 处理中断，类似stream_workflow的逻辑
+                            if isinstance(node_output, tuple):
+                                self.is_interrupted = True
+                                interrupt_data = {
+                                    "interrupt": True,
+                                    "data": node_output,
+                                    "node": "__interrupt__",
+                                    "prompt": node_output[0].value['prompt'] if hasattr(node_output[0], 'value') else "需要您的输入"
+                                }
+                                self.interrupt_data = interrupt_data
+                                yield {
+                                    "type": "interrupt",
+                                    "prompt": interrupt_data["prompt"],
+                                    "node": node_name,
+                                    "session_id": self.config.session_id
+                                }
+                                return  # 中断后停止执行
+                            else:
+                                # 非tuple类型的中断处理
+                                self.interrupt_data = node_output if isinstance(node_output, dict) else {"data": node_output}
+                                prompt = self._extract_interrupt_prompt(self.interrupt_data) if isinstance(self.interrupt_data, dict) else "需要您的输入以继续"
+                                yield {
+                                    "type": "interrupt",
+                                    "prompt": prompt,
+                                    "node": node_name,
+                                    "session_id": self.config.session_id
+                                }
+                                return
+                        
+                        # 确保其他节点输出是dict类型
+                        if not isinstance(node_output, dict):
+                            logger.warning(f"节点 {node_name} 输出不是字典类型: {type(node_output)}，跳过处理")
+                            continue
 
                         # 保存当前状态
                         self.current_state = node_output
 
-                        # 推送节点更新
-                        if self.config.socket_queue:
+                        # 推送节点更新（仅对dict类型的节点输出）
+                        socket_queue = self._get_socket_queue()
+                        if socket_queue:
                             await self._push_node_update(node_name, node_output)
 
                         # 处理节点输出
@@ -340,9 +358,19 @@ class EDWStreamService:
 
         except Exception as e:
             logger.error(f"恢复执行错误: {e}", exc_info=True)
+            self.is_interrupted = False
+            self.interrupt_data = None
+            
+            # 如果恢复失败，尝试提供有用的错误信息
+            error_msg = str(e)
+            if "thread" in error_msg.lower():
+                error_msg = "会话状态已过期，请重新开始对话"
+            elif "checkpoint" in error_msg.lower():
+                error_msg = "无法找到中断点，请重新开始任务"
+            
             yield {
                 "type": "error",
-                "error": str(e),
+                "error": error_msg,
                 "session_id": self.config.session_id
             }
 
@@ -557,11 +585,13 @@ class EDWStreamService:
             push_data["table_name"] = node_output.get("table_name", "")
             push_data["fields_count"] = len(node_output.get("fields", []))
 
-        self.config.socket_queue.send_message(
-            self.config.session_id,
-            "node_progress",
-            push_data
-        )
+        socket_queue = self._get_socket_queue()
+        if socket_queue:
+            socket_queue.send_message(
+                self.config.session_id,
+                "node_progress",
+                push_data
+            )
 
     def _get_node_metadata(self, node_name: str) -> Dict:
         """获取节点元数据"""
@@ -671,8 +701,9 @@ class EDWStreamService:
             }
             
             # 通过SocketIO推送验证步骤更新
-            if self.config.socket_queue:
-                self.config.socket_queue.send_message(
+            socket_queue = self._get_socket_queue()
+            if socket_queue:
+                socket_queue.send_message(
                     self.config.session_id,
                     "validation_step_progress",
                     {

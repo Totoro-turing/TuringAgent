@@ -54,7 +54,7 @@ async def edw_model_enhance_node(state: EDWState):
         # 🎯 发送代码增强进度
         send_node_processing(state, "model_enhance", f"正在生成{table_name}的增强代码...", 0.3)
         
-        # 异步执行代码增强 - 直接await调用
+        # 异步执行代码增强 - 直接await调用，传递state以支持Socket发送
         enhancement_result = await execute_code_enhancement_task(
             enhancement_mode="initial_enhancement",
             table_name=table_name,
@@ -63,7 +63,8 @@ async def edw_model_enhance_node(state: EDWState):
             fields=fields,
             logic_detail=logic_detail,
             code_path=code_path,
-            user_id=user_id
+            user_id=user_id,
+            state=state  # 传递完整的state，包含session_id等信息
         )
         
         if enhancement_result.get("success"):
@@ -73,6 +74,8 @@ async def edw_model_enhance_node(state: EDWState):
             # 直接使用从数据校验节点传递过来的模型名称
             model_name = state.get("model_attribute_name", "")
             logger.info(f"使用数据校验节点提取的模型名称: {model_name}")
+            
+            # Socket发送已移至execute_code_enhancement_task中统一处理
             
             # 格式化增强结果为用户友好的消息
             formatted_message = f"""## 🎉 代码增强完成

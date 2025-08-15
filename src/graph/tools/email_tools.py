@@ -125,74 +125,161 @@ async def build_email_template(
     else:
         review_link_html = '<p style="color: #d13438;">Review链接暂不可用，请联系技术支持。</p>'
     
-    # 构建完整的HTML模板
-    html_content = f"""
-    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-                max-width: 800px; 
-                margin: 0 auto;
-                background: white;
-                border-radius: 12px;
-                overflow: hidden;
-                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
-        
-        <!-- Header -->
-        <div style="background: linear-gradient(135deg, #0078d4, #106ebe); 
-                    padding: 30px;
-                    color: white;">
-            <h1 style="margin: 0; font-size: 28px;">Model Review Request</h1>
-            <p style="margin: 10px 0 0 0; opacity: 0.95; font-size: 16px;">
-                AI-Powered EDW Model Enhancement
-            </p>
+    # 构建字段表格HTML
+    fields_table_html = ""
+    if fields:
+        for field in fields:
+            if isinstance(field, dict):
+                physical_name = field.get('physical_name', '')
+                attribute_name = field.get('attribute_name', '')
+            else:
+                physical_name = getattr(field, 'physical_name', '')
+                attribute_name = getattr(field, 'attribute_name', '')
+            
+            if physical_name:
+                display_name = attribute_name if attribute_name else physical_name.replace('_', ' ').title()
+                fields_table_html += f"""
+                <tr>
+                    <td style="padding: 8px 12px; border-left: 3px solid #0078d4; background-color: #f8f9fa;">
+                        <span style="font-weight: 600; color: #323130;">{physical_name}</span>
+                        <span style="color: #605e5c; margin-left: 8px;">({display_name})</span>
+                    </td>
+                </tr>"""
+    
+    # 构建审查链接HTML
+    review_link_section = ""
+    if confluence_url:
+        review_link_section = f"""
+        <div class="review-log-title">Review log:</div>
+        <div style="margin: 25px 0;">
+            <a href="{confluence_url}" style="background: linear-gradient(135deg, #0078d4, #106ebe); color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600; box-shadow: 0 2px 8px rgba(0,120,212,0.3); transition: all 0.3s ease;">
+                📋 Review Log
+            </a>
         </div>
-        
-        <!-- Content -->
-        <div style="padding: 30px;">
-            <p style="color: #323130; font-size: 16px; line-height: 1.6;">
-                Dear {greeting},
+        <p style="color: #605e5c; font-size: 14px; margin: 10px 0;">
+            Review log: <a href="{confluence_url}" style="color: #0078d4;">{confluence_url}</a>
+        </p>"""
+    else:
+        review_link_section = """
+        <div class="review-log-title">Review log:</div>
+        <p style="color: #d13438; font-weight: 500;">Review链接暂不可用，请联系技术支持。</p>"""
+    
+    # 构建完整的HTML模板
+    html_content = f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🤖 EDW Model Review Request [AI Generated]</title>
+    <style>
+        body {{
+            font-family: 'Segoe UI', 'Microsoft YaHei', Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+        }}
+        .container {{
+            max-width: 600px;
+            margin: 20px auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }}
+        .header {{
+            background: #0078d4;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }}
+        .content {{
+            padding: 30px;
+        }}
+        .greeting {{
+            font-size: 16px;
+            color: #323130;
+            margin-bottom: 20px;
+            font-weight: 500;
+        }}
+        .model-name {{
+            font-size: 20px;
+            font-weight: 700;
+            color: #0078d4;
+            margin: 20px 0;
+            padding: 15px;
+            background: #f0f6ff;
+            border-left: 4px solid #0078d4;
+            border-radius: 4px;
+        }}
+        .fields-section {{
+            margin: 25px 0;
+        }}
+        .fields-title {{
+            font-size: 16px;
+            font-weight: 600;
+            color: #323130;
+            margin-bottom: 15px;
+        }}
+        .fields-table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }}
+        .review-log-title {{
+            font-size: 16px;
+            font-weight: 600;
+            color: #323130;
+            margin: 25px 0 15px 0;
+        }}
+        .footer {{
+            background: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            color: #605e5c;
+            font-size: 14px;
+            border-top: 1px solid #e1dfdd;
+        }}
+        a:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,120,212,0.4) !important;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 style="margin: 0; font-size: 24px;">🤖 EDW Model Review Request [AI Generated]</h1>
+            <p style="margin: 5px 0 0 0; opacity: 0.9;">Enterprise Data Warehouse</p>
+        </div>
+        <div class="content">
+            <!-- AI生成提示框 - 移到最上面 -->
+            <div style="background: #f0f8ff; border: 2px solid #4a90e2; border-radius: 8px; padding: 15px; margin-bottom: 20px; text-align: center;">
+                <p style="margin: 0; color: #2c5aa0; font-weight: 600; font-size: 14px;">
+                    🤖 本邮件内容由智能体发出 | AI Generated Content
+                </p>
+            </div>
+            <div class="greeting">Hello {greeting},</div>
+            <div class="model-name">
+                请帮忙review {model_full_name} 模型增强
+            </div>
+            <div class="fields-section">
+                <div class="fields-title">新增字段如下：</div>
+                <table class="fields-table">
+                    {fields_table_html}
+                </table>
+            </div>
+            {review_link_section}
+        </div>
+        <div class="footer">
+            <p style="margin: 0; color: #4a90e2; font-weight: 600;">🤖 This email was automatically generated by EDW Intelligent Assistant</p>
+            <p style="margin: 5px 0 0 0; color: #4a90e2; font-size: 13px;">
+                AI Generated Content | Generated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             </p>
-            
-            <p style="color: #323130; font-size: 16px; line-height: 1.6;">
-                The EDW model <strong style="color: #0078d4;">{model_full_name}</strong> has been enhanced 
-                using AI automation. Please review the changes below:
-            </p>
-            
-            <!-- Table Info -->
-            <div style="background: #f0f2f5; padding: 15px; border-radius: 8px; margin: 20px 0;">
-                <p style="margin: 5px 0;"><strong>Target Table:</strong> {table_name}</p>
-                <p style="margin: 5px 0;"><strong>Enhancement Type:</strong> {enhancement_type.replace('_', ' ').title()}</p>
-                <p style="margin: 5px 0;"><strong>Timestamp:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-            </div>
-            
-            {fields_html}
-            
-            <!-- Action Required -->
-            <div style="background: #fff4ce; 
-                        border-left: 4px solid #ffb900; 
-                        padding: 15px;
-                        margin: 20px 0;
-                        border-radius: 4px;">
-                <h3 style="color: #323130; margin-top: 0;">Action Required</h3>
-                <p style="color: #605e5c; margin: 5px 0;">
-                    Please review the model changes and provide your feedback.
-                </p>
-            </div>
-            
-            {review_link_html}
-            
-            <!-- Footer -->
-            <div style="margin-top: 30px; 
-                        padding-top: 20px; 
-                        border-top: 1px solid #edebe9;">
-                <p style="color: #a19f9d; font-size: 14px; margin: 5px 0;">
-                    This is an automated message generated by the EDW AI Assistant.
-                </p>
-                <p style="color: #a19f9d; font-size: 14px; margin: 5px 0;">
-                    For questions or concerns, please contact the EDW team.
-                </p>
-            </div>
         </div>
     </div>
-    """
+</body>
+</html>"""
     
     return html_content
 
@@ -308,11 +395,11 @@ async def _send_email_via_metis(
             email_params["Recipients"] = recipients
         
         # 创建邮件参数对象
-        param = EmailParam(**email_params)
+        param = EmailParam(email_params)
         
         # 发送邮件
-        email = Email()
-        response = email.send(param)
+        email = Email(param.get_param(), settings.EMAIL_TOKEN)
+        response = email.send()
         
         if response and "error" not in str(response).lower():
             logger.info(f"Metis邮件发送成功: {model_name}")

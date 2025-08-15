@@ -6,6 +6,7 @@
 import logging
 from typing import Optional, Any
 from src.models.states import EDWState
+from src.server.socket_manager import get_session_socket
 
 logger = logging.getLogger(__name__)
 
@@ -22,17 +23,18 @@ def send_progress(
     通用的进度发送函数 - 通过socket发送实时进度到前端
     
     Args:
-        state: EDW状态对象，包含socket_queue和session_id
+        state: EDW状态对象，包含session_id用于查找socket_queue
         node: 节点名称，如 'model_enhance', 'github_push' 等
         status: 状态，如 'processing', 'completed', 'failed' 等
         message: 用户友好的进度描述信息
         progress: 进度百分比（0.0-1.0）
         extra_data: 可选的额外数据
     """
-    socket_queue = state.get("socket_queue")
     session_id = state.get("session_id", "unknown")
     
-    # 🎯 Socket直接发送（主要方案）
+    # 🎯 通过全局socket管理器获取socket队列
+    socket_queue = get_session_socket(session_id)
+    
     if socket_queue:
         try:
             progress_data = {
@@ -93,12 +95,14 @@ def send_progress_message(
     发送带特定类型的进度消息（工具监控专用）
     
     Args:
-        state: EDW状态对象
+        state: EDW状态对象，包含session_id用于查找socket_queue
         message_type: 消息类型（tool_progress, agent_decision, agent_complete等）
         data: 消息数据
     """
-    socket_queue = state.get("socket_queue")
     session_id = state.get("session_id", "unknown")
+    
+    # 🎯 通过全局socket管理器获取socket队列
+    socket_queue = get_session_socket(session_id)
     
     if socket_queue:
         try:

@@ -16,6 +16,7 @@ import logging
 
 # 导入EDW相关模块
 from src.server.edw_service import EDWStreamService, EDWStreamConfig
+from src.server.socket_manager import register_session_socket, unregister_session_socket
 from src.agent.edw_agents import get_agent_manager
 from pydantic import BaseModel
 from openai.types.responses import ResponseTextDeltaEvent
@@ -43,8 +44,8 @@ class ChatMessage:
             self.timestamp = datetime.now().isoformat()
 
 
-class SocketIOAgentMessageQueue:
-    """基于SocketIO的实时Agent消息队列"""
+class SocketIOMessageSender:
+    """基于SocketIO的实时消息发送器"""
 
     def __init__(self, socketio_instance):
         self.socketio = socketio_instance
@@ -117,15 +118,15 @@ class SessionManager:
         self.session_agents = {}  # session_id -> Agent instance
         self.max_history_per_session = max_history_per_session
         self.session_timeout_hours = session_timeout_hours
+        self._ai_service_ref = None  # AIModelService引用，用于同步清理
 
         # 启动清理线程
         self._start_cleanup_thread()
 
-    async def get_or_create_agent(self, session_id: str, message_queue: SocketIOAgentMessageQueue) -> Any:
-        """获取或创建会话绑定的Agent（简化版本）"""
-        # 注：原有Agent机制暂时禁用，EDW任务使用EDWStreamService处理
-        # 如果需要启用普通聊天，请实现相应的Agent创建逻辑
-        return None
+    def set_ai_service_reference(self, ai_service):
+        """设置AIModelService引用，用于同步清理EDWStreamService实例"""
+        self._ai_service_ref = ai_service
+
 
     def add_message(self, session_id: str, role: str, content: str) -> None:
         """添加消息到会话历史"""
@@ -269,6 +270,11 @@ class SessionManager:
 
         if expired_sessions:
             logger.info(f"🧹 清理了 {len(expired_sessions)} 个过期会话")
+            
+            # 🎯 新增：通知AIModelService清理对应的EDWStreamService实例
+            # 这确保中断状态不会因为会话清理而丢失
+            if hasattr(self, '_ai_service_ref') and self._ai_service_ref:
+                self._ai_service_ref.cleanup_expired_edw_services(expired_sessions)
 
     def cleanup_expired_agents(self, expired_sessions: List[str]) -> None:
         """清理过期会话的Agent实例"""
@@ -303,7 +309,7 @@ class AIModelService:
 
     def __init__(self, session_manager: SessionManager):
         self.session_manager = session_manager
-        self.message_queue = SocketIOAgentMessageQueue(socketio)
+        self.message_queue = SocketIOMessageSender(socketio)
         self.edw_stream_services = {}  # session_id -> EDWStreamService 映射
 
     async def general_chat_stream(self, message: str, session_id: str = None):
@@ -315,6 +321,19 @@ class AIModelService:
 
             logger.info(f"🌐 处理消息: {message[:50]}... (会话: {session_id[:8]})")
 
+            # 🆕 发送处理开始进度消息，让用户立即看到处理状态
+            self.message_queue.send_message(
+                session_id,
+                "node_progress",  # 与现有进度系统保持一致的消息类型
+                {
+                    "node": "chat_handler",
+                    "status": "processing",
+                    "message": "processing...",
+                    "progress": 0.0,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+
             # 创建或获取EDW服务实例
             if session_id not in self.edw_stream_services:
                 config = EDWStreamConfig(
@@ -324,19 +343,27 @@ class AIModelService:
                 )
                 self.edw_stream_services[session_id] = EDWStreamService(config)
 
+                # 🎯 注册session的socket队列到全局管理器
+                register_session_socket(session_id, self.message_queue)
+
             service = self.edw_stream_services[session_id]
 
+            # 🎯 调试日志：检查服务状态
+            logger.info(f"🔍 会话 {session_id[:8]} 服务状态: is_interrupted={service.is_interrupted}")
+            if hasattr(service, 'interrupt_data') and service.interrupt_data:
+                logger.info(f"📄 存在中断数据: {str(service.interrupt_data)[:100]}...")
+            
             # 检查是否是中断响应
             if service.is_interrupted:
                 # 这是对中断的响应，恢复执行
-                logger.info(f"📝 处理中断响应: {message[:30]}...")
+                logger.info(f"📝 处理中断响应: {message[:30]}... (会话: {session_id[:8]})")
                 async for chunk in service.resume_from_interrupt(message):
                     yield chunk
             else:
                 # 所有新消息都通过EDW图处理
                 # 图内部的navigate_node会自动判断是聊天还是EDW任务
                 # 并路由到相应的节点（chat_node或model_node）
-                logger.info(f"🧭 通过EDW图处理消息，由导航节点自动识别任务类型")
+                logger.info(f"🧭 通过EDW图处理消息，由导航节点自动识别任务类型 (会话: {session_id[:8]})")
                 async for chunk in service.stream_workflow(message):
                     yield chunk
 
@@ -353,10 +380,34 @@ class AIModelService:
                 'session_id': session_id
             }
 
+    def cleanup_expired_edw_services(self, expired_sessions: List[str]) -> None:
+        """清理过期会话对应的EDWStreamService实例"""
+        for session_id in expired_sessions:
+            if session_id in self.edw_stream_services:
+                service = self.edw_stream_services[session_id]
+                try:
+                    # 如果服务有cleanup方法，调用它
+                    if hasattr(service, 'cleanup'):
+                        service.cleanup()
+                    logger.info(f"✅ 清理EDWStreamService实例: {session_id[:8]}")
+                except Exception as e:
+                    logger.error(f"❌ 清理EDWStreamService {session_id[:8]} 时出错: {e}")
+                finally:
+                    # 无论如何都要从字典中移除
+                    del self.edw_stream_services[session_id]
+                    # 🎯 同时注销session的socket队列
+                    unregister_session_socket(session_id)
+        
+        if expired_sessions:
+            logger.info(f"🧹 清理了 {len(expired_sessions)} 个EDWStreamService实例")
+
 
 # 创建全局实例
 session_manager = SessionManager(max_history_per_session=50, session_timeout_hours=24)
 ai_service = AIModelService(session_manager)
+
+# 🎯 设置双向引用，确保会话清理时同步清理EDWStreamService实例
+session_manager.set_ai_service_reference(ai_service)
 
 # 资源清理将在文件末尾统一注册
 
@@ -459,7 +510,7 @@ def index():
 
 @app.route('/api/chat/stream', methods=['POST'])
 def chat_stream():
-    """流式聊天接口 - 简化版（只处理AI文本）"""
+    """流式聊天接口 - 优化的同步版本（正确处理异步生成器）"""
     logger.info(f"📡 收到chat/stream请求: {request.method} {request.url}")
     logger.info(f"📋 请求头: {dict(request.headers)}")
     logger.info(f"🌐 客户端地址: {request.environ.get('REMOTE_ADDR')}")
@@ -488,25 +539,31 @@ def chat_stream():
         logger.info(f"🎯 开始处理流式聊天: {message[:50]}... (会话: {session_id[:8]})")
 
         def generate():
-            """生成器函数，只处理AI文本响应"""
+            """同步生成器函数，正确处理异步流"""
             loop = None
+            async_gen = None
             try:
+                # 创建新的事件循环
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-
+                
+                # 定义异步生成器
                 async def stream_chat():
                     async for chunk in ai_service.general_chat_stream(message.strip(), session_id):
                         if isinstance(chunk, dict):
                             yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
-
+                
+                # 创建异步生成器实例
                 async_gen = stream_chat()
+                
+                # 逐个获取异步生成器的结果
                 while True:
                     try:
                         chunk = loop.run_until_complete(async_gen.__anext__())
                         yield chunk
                     except StopAsyncIteration:
                         break
-
+                        
             except Exception as e:
                 logger.error(f"❌ 流式聊天生成器错误: {e}", exc_info=True)
                 error_chunk = {
@@ -515,10 +572,28 @@ def chat_stream():
                     'session_id': session_id
                 }
                 yield f"data: {json.dumps(error_chunk, ensure_ascii=False)}\n\n"
+                
             finally:
-                if loop and not loop.is_closed():
-                    loop.close()
-
+                # 🎯 正确清理资源
+                if async_gen is not None:
+                    try:
+                        loop.run_until_complete(async_gen.aclose())
+                    except Exception as e:
+                        logger.debug(f"关闭异步生成器时出现异常（可忽略）: {e}")
+                        
+                if loop is not None and not loop.is_closed():
+                    # 清理待处理任务
+                    try:
+                        pending = asyncio.all_tasks(loop)
+                        for task in pending:
+                            task.cancel()
+                        if pending:
+                            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                    except Exception as e:
+                        logger.debug(f"清理待处理任务时出现异常（可忽略）: {e}")
+                    finally:
+                        loop.close()
+        
         return Response(
             generate(),
             mimetype='text/event-stream',

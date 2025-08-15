@@ -82,6 +82,7 @@ async def create_model_documentation(
         执行结果字典
     """
     try:
+        # 验证table_name
         logger.info(f"准备创建Confluence文档: {table_name}")
         
         from src.basic.confluence.confluence_tools import ConfluenceWorkflowTools
@@ -93,29 +94,45 @@ async def create_model_documentation(
             schema = 'default'
             table = table_name
         
-        # 构建用于Confluence的上下文
-        context = {
-            "table_name": table_name,
-            "enhanced_code": enhanced_code,
-            "explanation": f"为表 {table_name} 增加了 {len(fields) if fields else 0} 个新字段",
-            "improvements": [],
-            "alter_sql": alter_table_sql
-        }
-        
-        # 添加字段改进信息
+        # 标准化字段信息格式
+        standardized_fields = []
         if fields:
             for field in fields:
                 if isinstance(field, dict):
-                    physical_name = field.get('physical_name', '')
+                    physical_name = field.get('physical_name', field.get('name', ''))
+                    attribute_name = field.get('attribute_name', '')
+                    data_type = field.get('data_type', field.get('type', 'string'))
+                    comment = field.get('comment', field.get('description', ''))
                 else:
-                    physical_name = getattr(field, 'physical_name', '')
+                    physical_name = getattr(field, 'physical_name', getattr(field, 'name', ''))
+                    attribute_name = getattr(field, 'attribute_name', '')
+                    data_type = getattr(field, 'data_type', getattr(field, 'type', 'string'))
+                    comment = getattr(field, 'comment', getattr(field, 'description', ''))
+                
                 if physical_name:
-                    context["improvements"].append(f"增加字段: {physical_name}")
+                    standardized_fields.append({
+                        'physical_name': physical_name,
+                        'attribute_name': attribute_name or physical_name,
+                        'data_type': data_type,
+                        'comment': comment,
+                        'source': 'Enhanced'
+                    })
+        
+        # 构建用于Confluence的上下文，直接传递字段信息
+        context = {
+            "table_name": table_name,
+            "model_name": model_name,
+            "enhanced_code": enhanced_code,
+            "explanation": f"为表{table_name} 增加了 {len(standardized_fields)} 个新字段",
+            "improvements": [f"增加字段: {field['physical_name']}" for field in standardized_fields],
+            "alter_sql": alter_table_sql,
+            "fields": standardized_fields  # 直接传递字段信息
+        }
         
         # 创建Confluence工具实例
         tools = ConfluenceWorkflowTools()
         
-        # 收集文档信息
+        # 收集文档信息，传递字段信息
         doc_info = await run_with_timeout(
             tools.collect_model_documentation_info(context),
             timeout=30.0,
@@ -124,6 +141,12 @@ async def create_model_documentation(
         
         if "error" in doc_info:
             error_msg = f"收集文档信息失败: {doc_info['error']}"
+            logger.error(error_msg)
+            return create_tool_result(False, error=error_msg)
+        
+        # 确保doc_info包含必要的schema_info
+        if "schema_info" not in doc_info:
+            error_msg = "文档信息缺少schema_info"
             logger.error(error_msg)
             return create_tool_result(False, error=error_msg)
         
@@ -173,35 +196,30 @@ async def create_model_documentation(
             "fields": []
         }
         
-        # 添加字段信息
-        if fields:
-            for field in fields:
-                if isinstance(field, dict):
-                    field_info = {
-                        "name": field.get("physical_name", ""),
-                        "type": field.get("data_type", "string"),
-                        "description": field.get("comment", "") or field.get("attribute_name", ""),
-                        "business_meaning": field.get("attribute_name", ""),
-                        "source": field.get("source", "Derived")
-                    }
-                else:
-                    field_info = {
-                        "name": getattr(field, "physical_name", ""),
-                        "type": getattr(field, "data_type", "string"),
-                        "description": getattr(field, "comment", "") or getattr(field, "attribute_name", ""),
-                        "business_meaning": getattr(field, "attribute_name", ""),
-                        "source": getattr(field, "source", "Derived")
-                    }
-                model_config["fields"].append(field_info)
+        # 添加字段信息 - 使用已标准化的字段信息
+        for field in standardized_fields:
+            field_info = {
+                "physical_name": field["physical_name"],
+                "attribute_name": field["attribute_name"],
+                "data_type": field["data_type"],
+                "comment": field["comment"],
+                "name": field["physical_name"],  # 保持兼容性
+                "type": field["data_type"],  # 保持兼容性
+                "description": field["comment"] or field["attribute_name"],
+                "business_meaning": field["attribute_name"],
+                "source": field["source"]
+            }
+            model_config["fields"].append(field_info)
         
         # 创建Confluence页面
         logger.info(f"正在创建Confluence页面: {model_config['model_name']}")
         
+        # 将model_config转换为doc_info格式
+        doc_info["model_config"] = model_config
+        doc_info["operation_type"] = operation_type
+        
         page_result = await run_with_timeout(
-            tools.create_or_update_model_page(
-                model_config=model_config,
-                operation_type=operation_type
-            ),
+            tools.create_confluence_page(doc_info),
             timeout=60.0,
             timeout_message="创建Confluence页面超时"
         )
@@ -264,15 +282,25 @@ async def update_model_documentation(
         from src.basic.confluence.confluence_tools import ConfluenceWorkflowTools
         
         tools = ConfluenceWorkflowTools()
+        confluence_manager = tools._get_confluence_manager()
         
         # 更新页面
+        # 注意：ConfluenceManager.update_page 是同步方法，需要包装
+        import asyncio
+        
+        async def async_update_page():
+            try:
+                result = confluence_manager.update_page(
+                    page_id=page_id,
+                    title=title or "",  # 如果没有新标题，使用空字符串
+                    content=content
+                )
+                return {"success": True, "result": result}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+        
         update_result = await run_with_timeout(
-            tools.update_page_content(
-                page_id=page_id,
-                content=content,
-                title=title,
-                version_comment=version_comment
-            ),
+            async_update_page(),
             timeout=30.0,
             timeout_message="更新Confluence页面超时"
         )

@@ -376,10 +376,9 @@ class AttributeNameReviewer:
             return "属性命名不符合规范，强烈建议修改"
 
 
-def attribute_review_node(state: EDWState) -> dict:
+def attribute_review_analysis_node(state: EDWState) -> dict:
     """
-    属性名称review节点
-    评估所有字段的属性命名并给出建议
+    属性分析节点：评估所有字段的属性命名并生成改进建议
     """
     try:
         fields = state.get("fields", [])
@@ -435,22 +434,22 @@ def attribute_review_node(state: EDWState) -> dict:
         # 计算平均分
         avg_score = total_score / len(review_results) if review_results else 100
         
-        # 如果有需要改进的属性，触发中断让用户确认
+        # 如果有需要改进的属性，生成改进提示
         if needs_improvement:
-            logger.info(f"发现 {len(needs_improvement)} 个属性需要改进，触发中断询问用户")
+            logger.info(f"发现 {len(needs_improvement)} 个属性需要改进，生成改进建议")
             
-            # 构建改进建议提示
+            # 生成improvement prompt
             improvement_prompt = _build_improvement_prompt(needs_improvement, avg_score)
             
-            # 使用中断机制让用户确认
-            user_response = interrupt({
-                "prompt": improvement_prompt,
-                "action_type": "attribute_improvement",
-                "needs_improvement": needs_improvement
-            })
-            
-            # 处理用户响应
-            return _process_user_response(state, user_response, needs_improvement, review_results)
+            # 存储到 ai_response 供中断节点使用
+            return {
+                "ai_response": improvement_prompt,
+                "needs_improvement": needs_improvement,
+                "attribute_review_results": review_results,
+                "attribute_avg_score": avg_score,
+                "user_id": user_id,
+                "needs_interrupt": True  # 标记需要中断
+            }
         
         # 所有属性都合格，继续流程
         logger.info(f"所有属性命名合格，平均分: {avg_score}")
@@ -459,16 +458,44 @@ def attribute_review_node(state: EDWState) -> dict:
             "attribute_review_completed": True,
             "attribute_review_results": review_results,
             "attribute_avg_score": avg_score,
-            "user_id": user_id
+            "user_id": user_id,
+            "needs_interrupt": False  # 标记不需要中断
         }
         
     except Exception as e:
-        logger.error(f"属性review节点失败: {e}")
+        logger.error(f"属性分析节点失败: {e}")
         return {
             "attribute_review_completed": True,
             "error_message": str(e),
-            "user_id": state.get("user_id", "")
+            "user_id": state.get("user_id", ""),
+            "needs_interrupt": False
         }
+
+
+def attribute_review_interrupt_node(state: EDWState) -> dict:
+    """
+    属性中断节点：执行中断并处理用户对属性改进建议的选择
+    """
+    user_id = state.get("user_id", "")
+    needs_improvement = state.get("needs_improvement", [])
+    review_results = state.get("attribute_review_results", [])
+    
+    # 从 ai_response 获取准备好的提示
+    improvement_prompt = state.get("ai_response", "请选择属性命名改进方案")
+    
+    logger.info("触发属性改进中断")
+    
+    # 调用 interrupt 获取用户响应
+    user_response = interrupt({
+        "prompt": improvement_prompt,
+        "action_type": "attribute_improvement",
+        "needs_improvement": needs_improvement
+    })
+    
+    # 处理用户响应
+    result = _process_user_response(state, user_response, needs_improvement, review_results)
+    result["ai_response"] = None  # 清理 ai_response
+    return result
 
 
 def _build_improvement_prompt(needs_improvement: List[dict], avg_score: float) -> str:
@@ -615,6 +642,13 @@ def _apply_custom_selections(fields: List[dict], needs_improvement: List[dict],
     return updated_fields
 
 
+def route_after_analysis(state: EDWState) -> str:
+    """分析节点后的路由：决定是否需要中断"""
+    if state.get("needs_interrupt"):
+        return "attribute_interrupt"
+    return END
+
+
 def create_attribute_review_subgraph():
     """
     创建属性名称review子图
@@ -625,8 +659,13 @@ def create_attribute_review_subgraph():
     
     return (
         StateGraph(EDWState)
-        .add_node("attribute_review", attribute_review_node)
-        .add_edge(START, "attribute_review")
-        .add_edge("attribute_review", END)
+        .add_node("attribute_analysis", attribute_review_analysis_node)
+        .add_node("attribute_interrupt", attribute_review_interrupt_node)
+        .add_edge(START, "attribute_analysis")
+        .add_conditional_edges("attribute_analysis", route_after_analysis, [
+            "attribute_interrupt",
+            END
+        ])
+        .add_edge("attribute_interrupt", END)
         .compile(checkpointer=get_shared_checkpointer())
     )

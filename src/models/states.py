@@ -85,9 +85,11 @@ class EDWState(TypedDict):
     status_details: Optional[dict]  # 状态详细信息（可选）
     
     # 🎯 Socket通信支持 - 用于实时进度发送
-    socket_queue: Optional[Any]  # Socket队列对象，用于发送实时进度到前端
-    session_id: Optional[str]  # 会话ID，用于socket消息标识
-
+    # 注意：socket_queue已移除，改用全局socket管理器通过session_id查找
+    session_id: Optional[str]  # 会话ID，用于socket消息标识和socket队列查找
+    
+    # 🎯 AI上下文感知提示 - 用于存储准备节点生成的提示信息
+    ai_response: Optional[str]  # AI生成的上下文感知提示信息，供中断节点使用
 
 class ValidationState(TypedDict):
     """验证子图专用状态 - 包含所有验证流程需要的字段"""
@@ -101,8 +103,8 @@ class ValidationState(TypedDict):
     type: Optional[str]  # 任务类型，从主图继承
     
     # 🎯 Socket通信支持 - 用于实时进度发送
-    socket_queue: Optional[Any]  # Socket队列对象，用于发送实时进度到前端
-    session_id: Optional[str]  # 会话ID，用于socket消息标识
+    # 注意：socket_queue已移除，改用全局socket管理器通过session_id查找
+    session_id: Optional[str]  # 会话ID，用于socket消息标识和socket队列查找
     
     # 验证流程控制状态
     validation_status: Optional[str]  # 验证状态：processing, incomplete_info, completed, retry, proceed

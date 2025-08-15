@@ -14,7 +14,7 @@ from .core.routing import (
 )
 
 # 验证节点
-from .validation.validation_check import validation_check_node
+from .validation.validation_check import validation_context_node, validation_interrupt_node
 from .validation.model_validation import (
     edw_model_add_data_validation_node
 )
@@ -25,7 +25,7 @@ from .enhancement.model_enhance import edw_model_enhance_node
 from .enhancement.model_addition import edw_model_addition_node
 
 # 微调节点
-from .refinement.inquiry import refinement_inquiry_node
+from .refinement.inquiry import refinement_context_node, refinement_interrupt_node
 from .refinement.intent import refinement_intent_node
 from .refinement.execution import code_refinement_node
 
@@ -51,7 +51,8 @@ __all__ = [
     'route_after_validation_check',
     
     # 验证节点
-    'validation_check_node',
+    'validation_context_node',
+    'validation_interrupt_node',
     'edw_model_add_data_validation_node',
     'create_validation_subgraph',
     
@@ -60,7 +61,8 @@ __all__ = [
     'edw_model_addition_node',
     
     # 微调节点
-    'refinement_inquiry_node',
+    'refinement_context_node',
+    'refinement_interrupt_node',
     'refinement_intent_node',
     'code_refinement_node',
     

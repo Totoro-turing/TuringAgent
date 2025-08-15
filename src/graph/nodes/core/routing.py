@@ -44,11 +44,8 @@ def route_after_validation_check(state: EDWState):
     validation_status = state.get("validation_status")
     
     if validation_status == "proceed":
-        # 验证通过，先进入属性review节点
-        return "attribute_review_subgraph"
-    elif validation_status == "retry":
-        # 需要重试，回到验证子图
-        return "model_enhance_data_validation_node"
+        # 验证通过，直接进入增强节点
+        return "model_enhance_node"
     else:
         # 默认结束
         return END
