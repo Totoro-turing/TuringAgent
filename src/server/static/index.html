@@ -550,7 +550,7 @@
 
         .chat-container.workspace-mode .message.user {
             justify-content: flex-end;
-            margin-bottom: 16px;
+            margin-bottom: 0; /* 使用统一的message margin-bottom */
             padding: 0;
             background: transparent;
             border: none;
@@ -574,19 +574,25 @@
             position: relative;
             backdrop-filter: blur(8px);
             transition: all 0.3s ease;
+            margin-right: 12px; /* 为小尾巴留出空间 */
         }
 
-        .chat-container.workspace-mode .message.user .user-message::before {
+        /* 用户消息右侧小尾巴 */
+        .chat-container.workspace-mode .message.user .user-message::after {
             content: '';
             position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%);
-            border-radius: inherit;
-            pointer-events: none;
+            top: 50%;
+            right: -8px;
+            transform: translateY(-50%);
+            width: 0;
+            height: 0;
+            border-left: 8px solid #6366f1;
+            border-top: 6px solid transparent;
+            border-bottom: 6px solid transparent;
+            z-index: 2;
         }
+
+        /* 移除原有的before，用于边框高亮 */
 
         .chat-container.workspace-mode .message.user .user-message:hover {
             transform: translateY(-2px) scale(1.01);
@@ -595,8 +601,8 @@
                         0 0 20px rgba(79, 70, 229, 0.3);
         }
 
-        /* 工作区模式用户消息边框高亮 */
-        .chat-container.workspace-mode .message.user .user-message::after {
+        /* 工作区模式用户消息边框高亮（改为before避免与小尾巴冲突） */
+        .chat-container.workspace-mode .message.user .user-message:hover::before {
             content: '';
             position: absolute;
             inset: -2px;
@@ -607,15 +613,10 @@
                 rgba(79, 70, 229, 0.7)
             );
             border-radius: inherit;
-            opacity: 0;
-            transition: opacity 0.3s ease;
+            opacity: 1;
             z-index: -1;
             filter: blur(6px);
             animation: workspaceUserBorderGlow 3s ease-in-out infinite;
-        }
-
-        .chat-container.workspace-mode .message.user .user-message:hover::after {
-            opacity: 1;
         }
 
         @keyframes workspaceUserBorderGlow {
@@ -679,11 +680,12 @@
             display: flex;
             padding: 0 24px;
             gap: 12px;
+            margin-bottom: 20px; /* 统一消息间距 */
         }
 
         .chat-container.workspace-mode .message {
             padding: 0;
-            margin-bottom: 20px;
+            margin-bottom: 18px; /* 工作区模式下稍小的间距 */
         }
 
         .avatar {
@@ -707,6 +709,23 @@
             border-radius: 12px;
             padding: 16px;
             border-left: 4px solid var(--accent-primary);
+            position: relative;
+            margin-left: 12px; /* 为小尾巴留出空间 */
+        }
+
+        /* AI消息左侧小尾巴 */
+        .chat-container.workspace-mode .message.ai::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: -8px;
+            transform: translateY(-50%);
+            width: 0;
+            height: 0;
+            border-right: 8px solid var(--bg-tertiary);
+            border-top: 6px solid transparent;
+            border-bottom: 6px solid transparent;
+            z-index: 1;
         }
 
         .chat-container.workspace-mode .message.ai .avatar {
@@ -784,13 +803,61 @@
         }
 
         .chat-container.workspace-mode .message.agent {
-            margin: 12px 0 !important;
+            margin: 12px 0 12px 12px !important; /* 为小尾巴留出空间 */
             border-radius: 10px !important;
             max-width: 95% !important;
             align-self: flex-start !important;
             /* 工作区模式下也保持稳定 */
             isolation: isolate !important;
             contain: layout style !important;
+        }
+
+        /* Agent消息左侧小尾巴（使用after避免与before冲突） */
+        .chat-container.workspace-mode .message.agent::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: -8px;
+            transform: translateY(-50%);
+            width: 0;
+            height: 0;
+            border-right: 8px solid;
+            border-top: 6px solid transparent;
+            border-bottom: 6px solid transparent;
+            z-index: 2;
+        }
+
+        /* 不同类型Agent消息的小尾巴颜色 */
+        .chat-container.workspace-mode .message.agent.page-switch::after {
+            border-right-color: #4f46e5;
+        }
+
+        .chat-container.workspace-mode .message.agent.agent-handoff::after {
+            border-right-color: #7c3aed;
+        }
+
+        .chat-container.workspace-mode .message.agent.tool-start::after {
+            border-right-color: #0891b2;
+        }
+
+        .chat-container.workspace-mode .message.agent.tool-end::after {
+            border-right-color: #059669;
+        }
+
+        .chat-container.workspace-mode .message.agent.code-found::after {
+            border-right-color: #dc2626;
+        }
+
+        .chat-container.workspace-mode .message.agent.code-error::after {
+            border-right-color: #ea580c;
+        }
+
+        .chat-container.workspace-mode .message.agent.code-update::after {
+            border-right-color: #7c3aed;
+        }
+
+        .chat-container.workspace-mode .message.agent.agent-end::after {
+            border-right-color: #16a34a;
         }
 
         @keyframes slideInAgent {
@@ -1026,18 +1093,24 @@
             font-weight: 500;
         }
 
-        /* ===== 思考过程消息样式 ===== */
-        .message.thinking {
+        /* ===== 思考框样式（只使用thinking-steps-content） ===== */
+        .thinking-steps-content {
             background: linear-gradient(135deg, rgba(124, 58, 237, 0.15), rgba(79, 70, 229, 0.15));
             border: 1px solid rgba(124, 58, 237, 0.3);
-            border-radius: 16px;
-            margin: 16px auto;
-            max-width: 680px; /* 进一步增加宽度以容纳更多消息 */
-            overflow: hidden;
-            animation: thinkingFadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-            text-align: center;
+            border-radius: 12px;
+            margin: 20px auto; /* 居中显示 */
+            width: 85%; /* 适中宽度 */
+            max-width: 800px; /* 合适的最大宽度 */
+            min-width: 320px;
+            padding: 16px 24px;
             backdrop-filter: blur(10px);
-            box-shadow: 0 8px 32px rgba(124, 58, 237, 0.15);
+            box-shadow: 0 4px 16px rgba(124, 58, 237, 0.15);
+            position: relative;
+            z-index: 10;
+            animation: thinkingFadeIn 0.4s ease-out;
+            font-size: 14px;
+            color: #e2e8f0;
+            line-height: 1.5;
         }
 
         @keyframes thinkingFadeIn {
@@ -1051,21 +1124,44 @@
             }
         }
 
-        .thinking-header {
+        .thinking-status-line {
             display: flex;
             align-items: center;
-            padding: 16px 20px 12px;
+            justify-content: space-between;
+            padding: 0 0 8px 0;
             border-bottom: 1px solid rgba(124, 58, 237, 0.2);
-            background: rgba(124, 58, 237, 0.05);
+            margin-bottom: 12px;
         }
 
-        .thinking-title {
+        .thinking-status-text {
             font-weight: 600;
             color: #a855f7;
-            display: flex;
-            align-items: center;
-            gap: 8px;
             font-size: 14px;
+        }
+
+        .thinking-detail-text {
+            font-size: 14px;
+            color: #e2e8f0;
+            line-height: 1.5;
+            min-height: 20px;
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .thinking-steps-content {
+                width: 95%;
+                min-width: 280px;
+                margin: 16px auto;
+                padding: 12px 16px;
+            }
+            
+            .thinking-status-text {
+                font-size: 13px;
+            }
+            
+            .thinking-detail-text {
+                font-size: 13px;
+            }
         }
 
         .thinking-spinner {
@@ -1077,20 +1173,24 @@
             animation: spin 1.5s linear infinite;
         }
 
-        .thinking-content {
-            padding: 16px 20px;
-            max-height: 300px;
-            overflow-y: auto;
+        /* 工作区模式下的思考框样式 */
+        .chat-container.workspace-mode .thinking-steps-content {
+            margin: 16px auto;
+            width: 92%;
+            max-width: 100%;
+            z-index: 15; /* 确保在工作区模式下不被遮挡 */
         }
 
         .thinking-step {
-            display: flex;
-            align-items: flex-start;
-            gap: 12px;
-            padding: 8px 0;
-            border-bottom: 1px solid rgba(124, 58, 237, 0.1);
+            display: block; /* 改为flex布局 */
+            padding: 16px 24px; /* 增加内边距 */
+            margin: 12px 0;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.05); /* 稍微加深背景 */
+            border-left: 4px solid rgba(124, 58, 237, 0.5); /* 加粗左边框 */
             transition: all 0.3s ease;
-            opacity: 0.6;
+            opacity: 0.9; /* 提高透明度 */
+            backdrop-filter: blur(8px);
         }
 
         .thinking-step:last-child {
@@ -1099,21 +1199,25 @@
 
         .thinking-step.current {
             opacity: 1;
-            background: rgba(124, 58, 237, 0.05);
-            margin: 0 -12px;
-            padding: 12px;
-            border-radius: 8px;
-            border-bottom: 1px solid rgba(124, 58, 237, 0.1);
+            background: rgba(124, 58, 237, 0.12);
+            border-left-color: rgba(124, 58, 237, 0.8);
+            border-left-width: 5px;
+            transform: scale(1.01);
+            box-shadow: 0 6px 20px rgba(124, 58, 237, 0.3);
             animation: thinkingGlow 2s ease-in-out infinite alternate;
         }
 
         .thinking-step.completed {
-            opacity: 0.8;
+            opacity: 0.9;
+            background: rgba(16, 185, 129, 0.06);
+            border-left-color: #10b981;
             color: #10b981;
         }
 
         .thinking-step.failed {
-            opacity: 0.8;
+            opacity: 0.9;
+            background: rgba(239, 68, 68, 0.06);
+            border-left-color: #ef4444;
             color: #ef4444;
         }
 
@@ -1127,10 +1231,7 @@
         }
 
         .thinking-step-icon {
-            font-size: 16px;
-            line-height: 1;
-            flex-shrink: 0;
-            animation: iconPulse 2s ease-in-out infinite;
+            display: none; /* 隐藏左侧图标 */
         }
 
         @keyframes iconPulse {
@@ -1139,17 +1240,19 @@
         }
 
         .thinking-step-text {
-            font-size: 13px;
-            line-height: 1.4;
-            font-weight: 500;
-            color: var(--text-primary);
+            font-size: 16px; /* 放大字体 */
+            line-height: 1.6;
+            font-weight: 600; /* 加粗字体 */
+            color: #ffffff; /* 高亮显示 */
+            margin-bottom: 8px;
         }
 
         .thinking-step-detail {
-            font-size: 12px;
-            color: var(--text-secondary);
-            margin-top: 4px;
-            line-height: 1.3;
+            font-size: 14px; /* 放大字体 */
+            color: #e2e8f0; /* 更明亮的颜色 */
+            margin-top: 6px;
+            line-height: 1.5;
+            opacity: 0.85;
         }
 
         .thinking-step.current .thinking-step-icon {
@@ -1171,7 +1274,7 @@
         }
 
         /* 隐藏思考过程消息的动画 */
-        .message.thinking.hiding {
+        .thinking-steps-content.hiding {
             animation: thinkingFadeOut 0.5s ease-in forwards;
         }
 
@@ -1410,34 +1513,62 @@
         }
 
         .code-panel-header {
-            background: #161b22;
-            padding: 12px 20px;
-            border-bottom: 1px solid #30363d;
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            padding: 14px 20px;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.2);
             display: flex;
             align-items: center;
             justify-content: space-between;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
         }
 
         .file-info {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 12px;
+            flex: 1;
         }
 
         .language-tag {
             padding: 6px 12px;
-            background: #238636;
+            background: linear-gradient(135deg, #059669 0%, #10b981 100%);
             color: #ffffff;
-            border-radius: 6px;
+            border-radius: 8px;
             font-size: 12px;
-            border: 1px solid #238636;
-            font-weight: 500;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            box-shadow: 0 2px 4px rgba(5, 150, 105, 0.3);
         }
 
         .file-name {
-            color: #8b949e;
-            font-size: 13px;
-            margin-left: 8px;
+            color: #e2e8f0;
+            font-size: 14px;
+            font-weight: 500;
+            flex: 1;
+        }
+
+        /* 新增：分支信息样式 */
+        .branch-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(59, 130, 246, 0.1);
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: 1px solid rgba(59, 130, 246, 0.2);
+        }
+
+        .branch-icon {
+            color: #3b82f6;
+            font-size: 14px;
+        }
+
+        .branch-name {
+            color: #3b82f6;
+            font-size: 12px;
+            font-weight: 500;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
         }
 
         .code-actions {
@@ -2002,6 +2133,73 @@
         }
 
         /* ===== 响应式设计 ===== */
+        
+        /* 大屏幕优化 (1200px以上) */
+        @media (min-width: 1200px) {
+            .message.thinking {
+                max-width: min(80vw, 1000px); /* 大屏幕可以更宽 */
+                margin: 24px auto;
+            }
+
+            .thinking-content {
+                padding: 28px 36px;
+                overflow: visible;
+            }
+
+            .thinking-step {
+                padding: 18px 28px;
+                margin: 14px 0;
+                border-radius: 14px;
+            }
+
+            .thinking-step-icon {
+                display: none;
+            }
+
+            .thinking-step-text {
+                font-size: 17px;
+                margin-bottom: 10px;
+            }
+
+            .thinking-step-detail {
+                font-size: 15px;
+                margin-top: 8px;
+            }
+        }
+
+        /* 中等屏幕优化 (769px - 1199px) */
+        @media (min-width: 769px) and (max-width: 1199px) {
+            .message.thinking {
+                max-width: min(85vw, 900px);
+                margin: 22px auto;
+            }
+
+            .thinking-content {
+                padding: 26px 32px;
+                overflow: visible;
+            }
+
+            .thinking-step {
+                padding: 16px 24px;
+                margin: 12px 0;
+                border-radius: 13px;
+            }
+
+            .thinking-step-icon {
+                display: none;
+            }
+
+            .thinking-step-text {
+                font-size: 16px;
+                margin-bottom: 8px;
+            }
+
+            .thinking-step-detail {
+                font-size: 14px;
+                margin-top: 6px;
+            }
+        }
+
         @media (max-width: 768px) {
             .logo {
                 font-size: 48px;
@@ -2103,6 +2301,56 @@
                 padding: 12px 14px;
                 font-size: 13px;
                 border-radius: 16px 16px 4px 16px;
+                margin-right: 10px;
+            }
+
+            .chat-container.workspace-mode .message.user .user-message::after {
+                right: -7px;
+                border-left-width: 7px;
+                border-top-width: 5px;
+                border-bottom-width: 5px;
+            }
+
+            /* 移动端思考框优化 */
+            .message.thinking {
+                max-width: min(95vw, 900px); /* 移动端使用更大的宽度 */
+                margin: 16px auto;
+                border-radius: 12px;
+            }
+
+            .thinking-header {
+                padding: 12px 16px 10px;
+            }
+
+            .thinking-title {
+                font-size: 13px;
+            }
+
+            .thinking-content {
+                padding: 20px 24px;
+                overflow: visible;
+                min-height: 60px;
+            }
+
+            .thinking-step {
+                padding: 14px 20px;
+                margin: 10px 0;
+                border-radius: 10px;
+            }
+
+            .thinking-step-icon {
+                display: none;
+            }
+
+            .thinking-step-text {
+                font-size: 15px;
+                line-height: 1.5;
+                margin-bottom: 6px;
+            }
+
+            .thinking-step-detail {
+                font-size: 13px;
+                margin-top: 5px;
             }
         }
 
@@ -2117,6 +2365,63 @@
                 max-width: 95%;
                 padding: 10px 12px;
                 border-radius: 14px 14px 4px 14px;
+                margin-right: 8px;
+            }
+
+            .chat-container.workspace-mode .message.user .user-message::after {
+                right: -6px;
+                border-left-width: 6px;
+                border-top-width: 4px;
+                border-bottom-width: 4px;
+            }
+
+            /* 小屏幕思考框进一步优化 */
+            .message.thinking {
+                max-width: 98vw; /* 小屏幕几乎全宽 */
+                margin: 12px auto;
+                border-radius: 10px;
+            }
+
+            .thinking-header {
+                padding: 10px 12px 8px;
+            }
+
+            .thinking-title {
+                font-size: 12px;
+                gap: 6px;
+            }
+
+            .thinking-spinner {
+                width: 14px;
+                height: 14px;
+            }
+
+            .thinking-content {
+                padding: 18px 22px;
+                overflow: visible;
+                min-height: 50px;
+            }
+
+            .thinking-step {
+                padding: 12px 18px;
+                margin: 8px 0;
+                border-radius: 8px;
+            }
+
+            .thinking-step-icon {
+                display: none;
+            }
+
+            .thinking-step-text {
+                font-size: 14px;
+                line-height: 1.4;
+                margin-bottom: 5px;
+            }
+
+            .thinking-step-detail {
+                font-size: 12px;
+                margin-top: 4px;
+                opacity: 0.85;
             }
         }
 
@@ -2498,19 +2803,11 @@
         
         .code-meta-info {
             margin-top: 8px;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 12px;
-            font-size: 12px;
-            opacity: 0.9;
         }
         
-        .meta-item {
-            background: rgba(255, 255, 255, 0.1);
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 11px;
-            font-weight: 400;
+        /* 隐藏元数据面板，信息已移到header */
+        .code-meta-panel {
+            display: none !important;
         }
         
         .message.enhanced-code pre,
@@ -2710,10 +3007,29 @@
         <div class="file-info">
             <div class="language-tag" id="languageTag">代码</div>
             <div class="file-name" id="fileName">请在左侧描述你的需求...</div>
+            <div class="branch-info" id="branchInfo" style="display: none;">
+                <span class="branch-icon">🌿</span>
+                <span class="branch-name" id="branchName">未知分支</span>
+            </div>
         </div>
         <div class="code-actions">
             <div class="modified-indicator" id="modifiedIndicator">已修改</div>
             <button class="save-btn" id="saveBtn" onclick="saveCode()">💾 保存</button>
+        </div>
+    </div>
+    <!-- 文件元数据信息区域 -->
+    <div class="code-meta-panel" id="codeMetaPanel" style="display: none;">
+        <div class="meta-info-row">
+            <span class="meta-label">📁 文件:</span>
+            <span class="meta-value" id="metaFileName">未知文件</span>
+        </div>
+        <div class="meta-info-row">
+            <span class="meta-label">🌿 分支:</span>
+            <span class="meta-value" id="metaBranch">未知分支</span>
+        </div>
+        <div class="meta-info-row" id="metaBaseTablesRow" style="display: none;">
+            <span class="meta-label">📊 底表:</span>
+            <span class="meta-value" id="metaBaseTables"></span>
         </div>
     </div>
 
@@ -3003,8 +3319,8 @@ def analyze_data(data_file):
             messageDiv.innerHTML = createNormalUserMessage(processedContent, showTimestamp);
         }
 
-        // 添加到容器
-        messagesContainer.appendChild(messageDiv);
+        // 使用智能插入函数，确保思考框始终在底部
+        insertMessageBeforeThinking(messageDiv, messagesContainer);
 
         // 添加交互效果
         enhanceUserMessageInteractions(messageDiv);
@@ -3424,7 +3740,8 @@ def analyze_data(data_file):
                 }
             }
 
-            messagesContainer.appendChild(messageDiv);
+            // 使用智能插入函数，确保思考框始终在底部
+            insertMessageBeforeThinking(messageDiv, messagesContainer);
 
             setTimeout(() => {
                 messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -3465,20 +3782,27 @@ def analyze_data(data_file):
             if (currentPage === 'workspace') {
                 messageDiv.innerHTML = `
                     <div class="message-content">
-                        <div class="stream-content" data-stream-id="${messageId}">${content}</div>
+                        <div class="stream-content" data-stream-id="${messageId}">${content || ''}</div>
                     </div>
                 `;
             } else {
                 messageDiv.innerHTML = `
                     <div class="avatar">🤖</div>
                     <div class="message-content">
-                        <div class="stream-content" data-stream-id="${messageId}">${content}</div>
+                        <div class="stream-content" data-stream-id="${messageId}">${content || ''}</div>
                     </div>
                 `;
             }
         }
 
-        messagesContainer.appendChild(messageDiv);
+        // 如果是空内容的AI消息，先隐藏直到有实际内容
+        if (type === 'ai' && (!content || content.trim() === '')) {
+            messageDiv.style.display = 'none';
+            messageDiv.setAttribute('data-empty-ai', 'true');
+        }
+
+        // 使用智能插入函数，确保思考框始终在底部
+        insertMessageBeforeThinking(messageDiv, messagesContainer);
 
         // 延迟滚动，确保不影响Agent消息
         requestAnimationFrame(() => {
@@ -3494,6 +3818,13 @@ def analyze_data(data_file):
         const streamContent = document.querySelector(`[data-stream-id="${messageId}"]`);
         if (streamContent && streamContent.closest('[data-stream-isolated="true"]')) {
             streamContent.textContent += content;
+
+            // 如果这是第一次添加内容到空的AI消息，显示它
+            const messageDiv = streamContent.closest('.message');
+            if (messageDiv && messageDiv.getAttribute('data-empty-ai') === 'true' && content.trim()) {
+                messageDiv.style.display = '';
+                messageDiv.removeAttribute('data-empty-ai');
+            }
 
             // 确保工作区模式下的滚动
             if (currentPage === 'workspace') {
@@ -4275,15 +4606,15 @@ def analyze_data(data_file):
             console.log('🔄 隐藏之前的思考框');
             hideThinkingBox();
         }
-        // 强制确保状态完全重置
-        thinkingBoxVisible = false;
-        thinkingSteps.clear();
-        currentThinkingMessageId = null;
-        console.log('✅ 思考框状态已完全重置');
+        // 注意：不要在这里设置thinkingBoxVisible = false
+        // 让hideThinkingBox处理，或者在handleStreamChat中立即显示新的
+        console.log('✅ 准备显示新的思考框');
         
         // 检查是否在等待中断响应
         if (window.waitingForInterruptResponse) {
             console.log('📝 这是对中断的响应:', message);
+            console.log('🔍 中断响应时的session_id:', currentSessionId);
+            console.log('🔍 中断节点:', window.currentInterruptNode);
             window.waitingForInterruptResponse = false;
             
             // 恢复输入框提示
@@ -4321,12 +4652,39 @@ def analyze_data(data_file):
             socketConnected: socketConnected,
             messageLength: message?.length || 0
         });
+        
+        // 🎯 立即显示思考框，不等待SocketIO消息
+        console.log('🔍 检查是否需要显示思考框', {
+            thinkingBoxVisible,
+            waitingForInterruptResponse: window.waitingForInterruptResponse,
+            currentThinkingMessageId
+        });
+        
+        // 🎯 关键修复：在中断恢复时强制显示新的思考框
+        if (window.waitingForInterruptResponse) {
+            console.log('💭 这是中断恢复，强制重置并显示新思考框');
+            // 强制重置状态
+            thinkingBoxVisible = false;
+            currentThinkingMessageId = null;
+            thinkingSteps.clear();
+            // 清理DOM中可能存在的旧思考框
+            const oldThinkingBoxes = document.querySelectorAll('.message.thinking');
+            oldThinkingBoxes.forEach(box => box.remove());
+        }
+        
+        if (!thinkingBoxVisible) {
+            console.log('🧠 立即显示思考框（包括中断恢复场景）');
+            showThinkingBox();
+        }
 
         try {
-            // 确保有session_id
+            // 确保有session_id - 如果在等待中断响应，不要重新生成session_id
             if (!currentSessionId) {
                 currentSessionId = `session-${currentPage}-${Date.now()}-${Math.random().toString(36).substr(2, 8)}`;
                 console.log('🆔 生成新session_id:', currentSessionId);
+            } else if (window.waitingForInterruptResponse) {
+                // 🎯 关键：在中断响应期间保持session_id不变
+                console.log('💭 中断响应期间保持现有session_id:', currentSessionId);
             }
 
             // SocketIO连接 - 确保在HTTP请求前正确加入会话
@@ -4384,28 +4742,29 @@ def analyze_data(data_file):
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
 
-            // 从响应头获取session_id
+            // 从响应头获取session_id - 但在中断响应期间保持session_id不变
             const sessionId = response.headers.get('X-Session-ID');
-            if (sessionId) {
+            if (sessionId && !window.waitingForInterruptResponse) {
+                // 只有不在中断响应期间才更新session_id
                 currentSessionId = sessionId;
                 console.log('🔄 更新session_id:', currentSessionId);
                 if (socket && socketConnected) {
                     joinSession(currentSessionId);
                 }
+            } else if (sessionId && window.waitingForInterruptResponse) {
+                console.log('💭 中断响应期间，保持现有session_id不变:', currentSessionId);
             }
 
             // 移除处理中指示器
             removeProcessingIndicator();
 
-            // 添加思考完成步骤并开始隐藏思考框
+            // 添加思考完成步骤，但不隐藏思考框，让用户看到完整思考过程
             if (thinkingBoxVisible) {
-                addThinkingCompleteStep();
-            }
-
-            // 一旦开始创建AI回复容器，立即隐藏思考框
-            if (thinkingBoxVisible) {
-                console.log('🎬 AI开始回复，立即隐藏思考框');
-                hideThinkingBox();
+                updateThinkingStep('final', 'processing', '正在生成回复...');
+                console.log('🧠 保持思考框显示，直到stream响应完成');
+            } else {
+                // 额外保护：如果此时思考框不可见，可能是因为workflow_start消息还未到达
+                console.log('⚠️ 注意：此时思考框不可见，等待workflow_start消息显示');
             }
 
             // 创建隔离的AI消息容器
@@ -4582,9 +4941,12 @@ def analyze_data(data_file):
                         }
                     }
 
-                    // 隐藏思考框
-                    if (thinkingBoxVisible) {
+                    // 在stream响应完全结束时隐藏思考框（但不要在等待中断响应时隐藏）
+                    if (thinkingBoxVisible && !window.waitingForInterruptResponse) {
+                        console.log('✅ Stream响应完成，现在隐藏思考框');
                         hideThinkingBox();
+                    } else if (window.waitingForInterruptResponse) {
+                        console.log('💭 等待中断响应，保持思考框显示');
                     }
 
                     // 检查是否有待处理的增强信息（当流式读取完成时）
@@ -4849,13 +5211,25 @@ ${improvements}
 
             case 'workflow_start':
                 console.log('🚀 收到工作流开始消息:', data.data);
-                // 工作流开始时立即显示思考框
+                // 工作流开始时确认思考框已显示（通常在handleStreamChat中已经显示）
                 if (!thinkingBoxVisible) {
-                    console.log('🎬 工作流开始，显示思考框');
+                    console.log('🎬 工作流开始，补充显示思考框');
                     showThinkingBox();
                 }
                 if (data.data && data.data.message) {
                     updateThinkingStep('workflow', 'started', data.data.message);
+                }
+                break;
+
+            case 'workflow_resume':
+                console.log('🔄 收到工作流恢复消息:', data.data);
+                // 🎯 工作流恢复时立即显示思考框（中断恢复的第二轮对话）
+                if (!thinkingBoxVisible) {
+                    console.log('🎬 工作流恢复，重新显示思考框');
+                    showThinkingBox();
+                }
+                if (data.data && data.data.message) {
+                    updateThinkingStep('workflow_resume', 'resumed', data.data.message);
                 }
                 break;
 
@@ -5986,6 +6360,34 @@ def optimize_data_processing():
     // ===== 思考框管理系统 =====
     
     /**
+     * 智能消息插入函数 - 确保思考框始终在底部
+     * @param {Element} messageElement - 要插入的消息元素
+     * @param {Element} messagesContainer - 消息容器
+     */
+    function insertMessageBeforeThinking(messageElement, messagesContainer) {
+        // 检查思考框是否存在且可见
+        if (thinkingBoxVisible && currentThinkingMessageId) {
+            const thinkingBox = document.getElementById(currentThinkingMessageId);
+            if (thinkingBox && thinkingBox.parentNode === messagesContainer) {
+                // 思考框存在，在其前面插入新消息
+                messagesContainer.insertBefore(messageElement, thinkingBox);
+                console.log('📍 消息已插入到思考框前面，保持思考框在底部');
+                return true;
+            } else {
+                // 思考框状态不一致，重置状态并使用普通插入
+                console.warn('⚠️ 思考框状态不一致，重置状态');
+                thinkingBoxVisible = false;
+                currentThinkingMessageId = null;
+            }
+        }
+        
+        // 思考框不存在或不可见，正常添加到末尾
+        messagesContainer.appendChild(messageElement);
+        console.log('📍 消息已添加到容器末尾（无思考框）');
+        return false;
+    }
+    
+    /**
      * 显示思考框
      */
     function showThinkingBox() {
@@ -5995,7 +6397,7 @@ def optimize_data_processing():
             timestamp: Date.now()
         });
         
-        // 如果已经有思考框显示，直接返回，不要重复创建
+        // 如果已经有思考框显示，检查是否真的存在
         if (thinkingBoxVisible && currentThinkingMessageId) {
             // 检查DOM中是否真的存在思考框
             const existingThinking = document.getElementById(currentThinkingMessageId);
@@ -6003,15 +6405,16 @@ def optimize_data_processing():
                 console.log('⚠️ 思考框已存在，跳过重复创建', currentThinkingMessageId);
                 return;
             } else {
-                console.log('⚠️ 思考框状态显示存在但DOM中找不到，重置状态');
+                console.log('⚠️ 思考框状态显示存在但DOM中找不到，重置状态并继续创建新的');
                 thinkingBoxVisible = false;
                 currentThinkingMessageId = null;
                 thinkingSteps.clear();
+                // 🎯 关键修复：不要return，继续执行创建新思考框的逻辑
             }
         }
         
         // 清理任何可能遗留的思考框
-        const existingThinkingBoxes = document.querySelectorAll('.message.thinking');
+        const existingThinkingBoxes = document.querySelectorAll('.thinking-steps-content, .thinking-box-simple, .message.thinking');
         if (existingThinkingBoxes.length > 0) {
             console.log(`🧹 发现 ${existingThinkingBoxes.length} 个遗留的思考框，清理中...`);
             existingThinkingBoxes.forEach(box => box.remove());
@@ -6031,30 +6434,28 @@ def optimize_data_processing():
         currentThinkingMessageId = 'thinking-' + Date.now() + '-' + Math.random().toString(36).substring(7);
         console.log('🆔 生成新的思考框ID:', currentThinkingMessageId);
         
-        // 创建思考消息元素
+        // 创建思考消息元素（只保留thinking-steps-content样式）
         const thinkingMessage = document.createElement('div');
-        thinkingMessage.className = 'message thinking';
+        thinkingMessage.className = 'thinking-steps-content';
         thinkingMessage.id = currentThinkingMessageId;
         thinkingMessage.innerHTML = `
-            <div class="thinking-header">
-                <div class="thinking-title">
-                    🤔 Running中...
-                    <div class="thinking-spinner"></div>
-                </div>
+            <div class="thinking-status-line">
+                <span class="thinking-status-text">⚙️ 执行工具: **execute_sql**...</span>
+                <div class="thinking-spinner"></div>
             </div>
-            <div class="thinking-content" id="thinkingContent-${currentThinkingMessageId}">
-                <!-- 步骤将通过 updateThinkingStep() 动态添加 -->
-            </div>
+            <div class="thinking-detail-text">处理中...</div>
         `;
         
         // 找到最后一个非思考框消息，插入在其后
-        const allMessages = messagesContainer.querySelectorAll('.message');
+        const allMessages = messagesContainer.querySelectorAll('.message, .thinking-steps-content');
         let insertAfter = null;
         
         // 从后往前找到最后一个用户或AI消息
         for (let i = allMessages.length - 1; i >= 0; i--) {
             const msg = allMessages[i];
-            if (!msg.classList.contains('thinking') && !msg.classList.contains('processing-indicator')) {
+            if (!msg.classList.contains('thinking') && 
+                !msg.classList.contains('thinking-steps-content') && 
+                !msg.classList.contains('processing-indicator')) {
                 insertAfter = msg;
                 break;
             }
@@ -6145,30 +6546,25 @@ def optimize_data_processing():
             return;
         }
         
-        // 加入小延迟，确保DOM完全准备好
-        setTimeout(() => {
-            const thinkingContentId = `thinkingContent-${currentThinkingMessageId}`;
-            const thinkingContent = document.getElementById(thinkingContentId);
-            console.log(`🔍 查找思考内容容器: ${thinkingContentId}`, thinkingContent);
-            
-            if (!thinkingContent) {
-                console.error('❌ 未找到思考内容容器，尝试重新查找思考框');
-                const thinkingBox = document.getElementById(currentThinkingMessageId);
-                if (thinkingBox) {
-                    console.log('✅ 找到思考框，但内容容器缺失，重新创建');
-                    const newContent = document.createElement('div');
-                    newContent.className = 'thinking-content';
-                    newContent.id = thinkingContentId;
-                    thinkingBox.appendChild(newContent);
-                    processThinkingStep(newContent, nodeName, status, message);
-                } else {
-                    console.error('❌ 思考框本身也不存在');
-                }
-                return;
-            }
-            
-            processThinkingStep(thinkingContent, nodeName, status, message);
-        }, 50); // 50ms延迟确保DOM准备就绪
+        // 直接更新思考框内容
+        const thinkingBox = document.getElementById(currentThinkingMessageId);
+        if (!thinkingBox) {
+            console.error('❌ 思考框不存在');
+            return;
+        }
+        
+        // 更新状态文本
+        const statusText = thinkingBox.querySelector('.thinking-status-text');
+        if (statusText) {
+            statusText.textContent = `⚙️ ${nodeName}: ${message || '处理中...'}`;
+        }
+        
+        // 更新详细文本
+        const detailText = thinkingBox.querySelector('.thinking-detail-text');
+        if (detailText) {
+            detailText.textContent = status === 'completed' ? '✅ 完成' : 
+                                    status === 'failed' ? '❌ 失败' : '处理中...';
+        }
     }
     
     /**
@@ -6216,11 +6612,8 @@ def optimize_data_processing():
             // 如果有当前步骤且新状态不是完成状态，则替换内容
             console.log(`🔄 替换当前步骤内容: ${message}`);
             currentStep.innerHTML = `
-                <span class="thinking-step-icon">${icon}</span>
-                <div>
-                    <div class="thinking-step-text">${message || nodeName}</div>
-                    <div class="thinking-step-detail">${detail}</div>
-                </div>
+                <div class="thinking-step-text">${message || nodeName}</div>
+                <div class="thinking-step-detail">${detail}</div>
             `;
         } else {
             // 如果没有当前步骤，或者状态是完成/失败，创建新步骤
@@ -6230,11 +6623,7 @@ def optimize_data_processing():
             if (currentStep && (status === 'completed' || status === 'failed')) {
                 currentStep.classList.remove('current');
                 currentStep.classList.add('completed');
-                const iconEl = currentStep.querySelector('.thinking-step-icon');
                 const detailEl = currentStep.querySelector('.thinking-step-detail');
-                if (iconEl && !iconEl.textContent.includes('✅')) {
-                    iconEl.textContent = '✅';
-                }
                 if (detailEl) {
                     detailEl.textContent = '完成';
                 }
@@ -6244,11 +6633,8 @@ def optimize_data_processing():
             const stepElement = document.createElement('div');
             stepElement.className = `thinking-step ${statusClass}`;
             stepElement.innerHTML = `
-                <span class="thinking-step-icon">${icon}</span>
-                <div>
-                    <div class="thinking-step-text">${message || nodeName}</div>
-                    <div class="thinking-step-detail">${detail}</div>
-                </div>
+                <div class="thinking-step-text">${message || nodeName}</div>
+                <div class="thinking-step-detail">${detail}</div>
             `;
             
             // 替换所有内容为新步骤（单一显示）
@@ -6271,10 +6657,8 @@ def optimize_data_processing():
         
         updateThinkingStep('final', 'completed', '分析完成，正在生成回复');
         
-        // 2秒后自动隐藏
-        setTimeout(() => {
-            hideThinkingBox();
-        }, 2000);
+        // 不再自动隐藏，让思考框持续显示直到stream响应完成
+        console.log('🧠 思考分析完成，保持显示直到回复完成');
     }
 
     // ===== 通知系统 =====
@@ -6370,10 +6754,6 @@ def optimize_data_processing():
      * 显示原始源代码
      */
     function displayOriginalCode(codeData) {
-        const messagesContainer = document.getElementById('chatMessages');
-        const codeDiv = document.createElement('div');
-        codeDiv.className = 'message ai original-code';
-        
         // 提取代码数据
         const {
             table_name = '未知',
@@ -6385,41 +6765,131 @@ def optimize_data_processing():
             base_tables = []
         } = codeData;
         
-        // 检测语言并设置对应的class
-        const languageClass = language === 'python' ? 'language-python' : 'language-sql';
-        const languageDisplay = language === 'python' ? 'Python' : 'SQL';
+        // 🎯 自动切换到工作区模式并加载代码
+        console.log('🔄 自动切换到工作区模式显示代码');
         
-        codeDiv.innerHTML = `
-            <div class="original-code-header">
-                📄 <strong>原始代码获取成功</strong> - 表: ${table_name}
-                <div class="code-meta-info">
-                    <span class="meta-item">📁 ${file_name || '未知文件'}</span>
-                    <span class="meta-item">🌿 ${branch_name}</span>
-                    <span class="meta-item">💻 ${languageDisplay}</span>
-                    ${base_tables.length > 0 ? `<span class="meta-item">📊 底表: ${base_tables.slice(0, 3).join(', ')}${base_tables.length > 3 ? '...' : ''}</span>` : ''}
-                </div>
-            </div>
-            <pre><code class="${languageClass}">${escapeHtml(source_code)}</code></pre>
-            <div class="code-actions">
-                <button onclick="copyToClipboard('${escapeHtml(source_code).replace(/'/g, "\\'")}')">📋 复制代码</button>
-                <button onclick="showCodeInEditor('${escapeHtml(source_code).replace(/'/g, "\\'")}', '${table_name}')">📝 在编辑器中查看</button>
-            </div>
-        `;
-        messagesContainer.appendChild(codeDiv);
-        
-        // 应用语法高亮
-        if (typeof Prism !== 'undefined') {
-            Prism.highlightAllUnder(codeDiv);
+        // 切换到workspace模式
+        if (currentPage !== 'workspace') {
+            switchToWorkspaceMode('enhance');
+            
+            // 等待页面切换完成再设置代码
+            setTimeout(() => {
+                loadCodeToEditorWithMeta(source_code, table_name, language, codeData);
+            }, 300);
+        } else {
+            // 已经在workspace模式，直接加载代码
+            loadCodeToEditorWithMeta(source_code, table_name, language, codeData);
         }
         
-        // 滚动到底部
-        messagesContainer.scrollTo({
-            top: messagesContainer.scrollHeight,
-            behavior: 'smooth'
-        });
-        
-        // 显示成功提示
+        // 只显示简单的成功消息，不显示绿色代码框
+        addMessage(`✅ **代码获取成功**\n\n已获取表 ${table_name} 的原始代码，已更新到右侧编辑器。`, 'ai');
         showInfo(`已获取表 ${table_name} 的源代码`, 2000);
+    }
+    
+    /**
+     * 加载代码到编辑器
+     */
+    function loadCodeToEditor(code, tableName, language) {
+        const codeEditor = document.getElementById('codeEditor');
+        const fileName = document.getElementById('fileName');
+        
+        if (codeEditor) {
+            codeEditor.value = code;
+            originalCode = code;
+            codeEditor.style.opacity = '1';
+            
+            // 设置语言类型class
+            codeEditor.className = `code-editor ${language === 'python' ? 'language-python' : 'language-sql'}`;
+        }
+        
+        if (fileName) {
+            fileName.textContent = `${tableName} - 原始代码`;
+        }
+        
+        // 显示代码面板
+        const codePanel = document.querySelector('.code-panel');
+        if (codePanel) {
+            codePanel.classList.add('active');
+        }
+        
+        // 显示加载成功提示
+        showInfo(`代码已自动加载到编辑器 - ${tableName}`, 2000);
+    }
+    
+    /**
+     * 加载代码到编辑器并显示元数据信息
+     */
+    function loadCodeToEditorWithMeta(code, tableName, language, codeData) {
+        const codeEditor = document.getElementById('codeEditor');
+        const languageTag = document.getElementById('languageTag');
+        const fileName = document.getElementById('fileName');
+        const branchInfo = document.getElementById('branchInfo');
+        const branchName = document.getElementById('branchName');
+        
+        if (!codeEditor || !languageTag || !fileName) {
+            console.error('❌ 代码编辑器DOM元素未找到');
+            showError('代码编辑器元素未找到');
+            return;
+        }
+        
+        // 更新代码内容
+        codeEditor.value = code;
+        codeEditor.style.opacity = '1';
+        originalCode = code;
+        
+        // 设置语言类型class
+        codeEditor.className = `code-editor ${language === 'python' ? 'language-python' : 'language-sql'}`;
+        
+        // 更新语言标签和文件名
+        const languageDisplay = language === 'python' ? 'Python' : 'SQL';
+        languageTag.textContent = languageDisplay;
+        
+        // 修复语言标签样式
+        if (language === 'sql') {
+            languageTag.style.background = '#f29111';
+            languageTag.style.borderColor = '#f29111';
+            languageTag.style.color = 'white';
+        } else if (language === 'python') {
+            languageTag.style.background = '#306998';
+            languageTag.style.borderColor = '#306998';
+            languageTag.style.color = 'white';
+        }
+        
+        fileName.textContent = `${tableName} - 原始代码`;
+        
+        // 更新元数据信息面板
+        if (codeData) {
+            const {
+                file_name = '',
+                branch_name = '未知',
+                base_tables = []
+            } = codeData;
+            
+            // 显示分支信息在header中
+            if (branch_name && branchName && branchInfo) {
+                branchName.textContent = branch_name;
+                branchInfo.style.display = 'flex';
+            } else if (branchInfo) {
+                branchInfo.style.display = 'none';
+            }
+        }
+        
+        // 显示代码面板
+        const codePanel = document.querySelector('.code-panel');
+        if (codePanel) {
+            codePanel.classList.add('active');
+        }
+        
+        // 更新全局变量
+        currentFile = {
+            name: codeData?.file_name || `${tableName}.${language === 'python' ? 'py' : 'sql'}`,
+            language: language,
+            path: codeData?.file_path || '',
+            table_name: tableName
+        };
+        
+        // 显示加载成功提示
+        showInfo(`代码已自动加载到编辑器 - ${tableName}`, 2000);
     }
     
     /**
