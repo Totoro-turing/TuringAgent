@@ -75,7 +75,37 @@ async def edw_model_enhance_node(state: EDWState):
             model_name = state.get("model_attribute_name", "")
             logger.info(f"使用数据校验节点提取的模型名称: {model_name}")
             
-            # Socket发送已移至execute_code_enhancement_task中统一处理
+            # 🎯 发送增强代码到前端显示
+            session_id = state.get("session_id", "unknown")
+            from src.server.socket_manager import get_session_socket
+            
+            socket_queue = get_session_socket(session_id)
+            if socket_queue:
+                try:
+                    socket_queue.send_message(
+                        session_id,
+                        "enhanced_code",
+                        {
+                            "type": "enhanced_code",
+                            "content": enhancement_result.get("enhanced_code"),
+                            "table_name": table_name,
+                            "create_table_sql": enhancement_result.get("new_table_ddl"),
+                            "alter_table_sql": enhancement_result.get("alter_statements"),
+                            "fields_count": len(fields),
+                            "enhancement_type": enhancement_type,
+                            "enhancement_mode": "initial_enhancement",
+                            "model_name": model_name,
+                            "file_path": code_path,
+                            "adb_path": adb_code_path,
+                            "optimization_summary": enhancement_result.get("optimization_summary", ""),
+                            "timestamp": datetime.now().isoformat()
+                        }
+                    )
+                    logger.info(f"✅ Socket发送增强代码成功: {table_name} (长度: {len(enhancement_result.get('enhanced_code', ''))} 字符)")
+                except Exception as e:
+                    logger.warning(f"Socket发送增强代码失败: {e}")
+            else:
+                logger.debug(f"Socket队列不存在: {session_id}")
             
             # 格式化增强结果为用户友好的消息
             formatted_message = f"""## 🎉 代码增强完成
@@ -100,12 +130,14 @@ async def edw_model_enhance_node(state: EDWState):
             # 添加字段详情
             for field in fields:
                 if isinstance(field, dict):
+                    source_name = field.get('source_name', '')
                     physical_name = field.get('physical_name', '')
                     attribute_name = field.get('attribute_name', '')
                 else:
+                    source_name = getattr(field, 'source_name', '')
                     physical_name = getattr(field, 'physical_name', '')
                     attribute_name = getattr(field, 'attribute_name', '')
-                formatted_message += f"- {physical_name} ({attribute_name})\n"
+                formatted_message += f"- {physical_name} ({attribute_name}) <- 源字段: {source_name}\n"
             
             # 🎯 发送完成进度
             send_node_completed(

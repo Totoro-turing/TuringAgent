@@ -193,64 +193,100 @@ def validate_model_name_node(state: EDWState) -> dict:
     # 导入验证函数
     from src.graph.utils.field import validate_english_model_name
 
-    model_attribute_name = state.get("model_attribute_name")
+    user_provided_model_name = state.get("model_attribute_name")  # 保存用户输入的模型名称
+    model_attribute_name = None  # 重置，准备按优先级重新赋值
     table_name = state.get("table_name", "").strip()
     model_name_source = None
 
-    # 如果没有提供模型名称但有表名，尝试从建表语句中提取
-    if not model_attribute_name and table_name:
+    # 优先级1: 如果有表名，总是优先尝试从表注释中提取（不管用户是否已提供）
+    if table_name:
         try:
             import asyncio
-            import re
             from src.mcp.mcp_client import execute_sql_via_mcp
 
-            # 执行 SHOW CREATE TABLE 获取建表语句
-            show_create_sql = f"SHOW CREATE TABLE {table_name}"
+            # 解析表名：分离schema和table_name
+            if '.' in table_name:
+                table_schema, actual_table_name = table_name.split('.', 1)
+            else:
+                # 如果没有schema，使用默认schema（可根据实际情况调整）
+                table_schema = 'default'
+                actual_table_name = table_name
+
+            # 直接查询表注释
+            comment_sql = f"""
+            SELECT comment
+            FROM system.information_schema.tables 
+            WHERE table_schema = '{table_schema}' AND table_name = '{actual_table_name}'
+            """
 
             # 使用 asyncio 执行异步函数
-            create_table_result = asyncio.run(execute_sql_via_mcp(show_create_sql))
+            comment_result = asyncio.run(execute_sql_via_mcp(comment_sql))
 
-            if create_table_result and "错误" not in create_table_result:
-                # 使用正则表达式提取表级 COMMENT
-                comment_pattern = r"USING\s+\w+(?:\s+PARTITIONED\s+BY\s+\([^)]+\))?\s*\n?\s*COMMENT\s+['\"]([^'\"]+)['\"]"
-                match = re.search(comment_pattern, create_table_result, re.IGNORECASE | re.DOTALL)
+            if comment_result and "错误" not in comment_result:
+                # 解析MCP返回的查询结果格式（第一行是列名，第二行是值）
+                comment_result = comment_result.strip()
+                logger.debug(f"MCP原始返回值: {repr(comment_result)}")
+                
+                # 分割结果，跳过列名行
+                lines = comment_result.split('\n')
+                if len(lines) > 1:
+                    # 第二行是实际的comment值
+                    comment_result = lines[1].strip()
+                else:
+                    # 如果只有一行或空结果，可能是错误格式
+                    comment_result = lines[0].strip() if lines else ''
+                
+                logger.debug(f"处理后的comment值: {repr(comment_result)}")
+                
+                # 检查结果是否包含有效的注释
+                if comment_result and comment_result not in ['NULL', 'null', '', 'None']:
+                    # 移除可能的引号和空白
+                    model_attribute_name = comment_result.strip('\'"')
+                    if model_attribute_name:  # 确保不是空字符串
+                        model_name_source = "table_comment"
+                        logger.info(f"从表注释中提取到模型名称: {model_attribute_name}")
 
-                if match:
-                    # 从建表语句中提取模型名称
-                    model_attribute_name = match.group(1).strip()
-                    model_name_source = "table_comment"
-                    logger.info(f"从建表语句中提取到模型名称: {model_attribute_name}")
-
-                    # 🎯 实时进度发送 - 提取成功
-                    send_validation_progress(state, "validate_name", "processing", f"从表注释中提取到模型名称: {model_attribute_name}", 0.35)
+                        # 🎯 实时进度发送 - 提取成功
+                        send_validation_progress(state, "validate_name", "processing", f"从表注释中提取到模型名称: {model_attribute_name}", 0.35)
 
         except Exception as e:
-            logger.error(f"尝试从建表语句提取模型名称时出错: {e}")
+            logger.error(f"尝试从表注释提取模型名称时出错: {e}")
 
-    # 如果没有模型名称（既没有用户提供，也没有从表中提取到）
+        # 优先级2: 如果SQL查询失败但用户有提供模型名称，使用用户输入作为fallback
+        if not model_attribute_name and user_provided_model_name:
+            model_attribute_name = user_provided_model_name.strip()
+            model_name_source = "user_input"
+            logger.info(f"使用用户提供的模型名称: {model_attribute_name}")
+
+            # 🎯 实时进度发送 - 使用用户输入
+            send_validation_progress(state, "validate_name", "processing", f"使用用户提供的模型名称: {model_attribute_name}", 0.35)
+
+    else:
+        # 没有表名，直接使用用户输入的模型名称
+        if user_provided_model_name:
+            model_attribute_name = user_provided_model_name.strip()
+            model_name_source = "user_input"
+            logger.info(f"没有表名，使用用户提供的模型名称: {model_attribute_name}")
+
+    # 如果最终仍然没有模型名称（所有方式都失败了）
     if not model_attribute_name:
-        # 如果有表名但提取失败，提示用户
-        if table_name:
-            error_msg = f"未能从表 {table_name} 的建表语句中自动提取模型名称。\n\n请手动提供模型的英文名称，例如：\n- Finance Invoice Header\n- Customer Order Detail\n- Inventory Management System"
-
-            # 🎯 实时进度发送 - 提取失败
-            send_validation_progress(state, "validate_name", "failed", "无法从表注释中提取模型名称", 0.4)
-
-            return {
-                "validation_status": "incomplete_info",
-                "failed_validation_node": "validate_name",
-                "error_message": error_msg,
-                "messages": [HumanMessage(error_msg)]
-            }
+        # 生成适当的错误消息
+        if table_name and user_provided_model_name:
+            error_msg = f"未能从表 {table_name} 的表注释中自动提取模型名称，用户提供的模型名称也无效。\n\n请提供有效的模型英文名称，例如：\n- Finance Invoice Header\n- Customer Order Detail\n- Inventory Management System"
+        elif table_name:
+            error_msg = f"未能从表 {table_name} 的表注释中自动提取模型名称，且用户未提供模型名称。\n\n请手动提供模型的英文名称，例如：\n- Finance Invoice Header\n- Customer Order Detail\n- Inventory Management System"
         else:
-            # 没有表名，跳过验证
-            return {
-                "validation_status": "processing",
-                # 🔥 清理错误信息，避免残留
-                "error_message": None,
-                "failed_validation_node": None,
-                "missing_info": None
-            }
+            error_msg = f"缺少表名和模型名称信息。\n\n请提供模型的英文名称，例如：\n- Finance Invoice Header\n- Customer Order Detail\n- Inventory Management System"
+
+        # 🎯 实时进度发送 - 提取失败
+        send_validation_progress(state, "validate_name", "failed", "无法获取有效的模型名称", 0.4)
+
+        return {
+            "validation_status": "incomplete_info",
+            "failed_validation_node": "validate_name",
+            "error_message": error_msg,
+            "messages": [HumanMessage(error_msg)]
+        }
 
     # 统一验证模型名称格式（无论是用户提供的还是从表中提取的）
     is_valid_name, name_error = validate_english_model_name(model_attribute_name)

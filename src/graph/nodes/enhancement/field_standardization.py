@@ -44,8 +44,10 @@ async def field_standardization_node(state: EDWState) -> dict:
             else:
                 standardized_field = field.model_dump() if hasattr(field, 'model_dump') else field.__dict__.copy()
             
-            # 强制使用系统标准的物理名称
-            original_name = standardized_field.get("physical_name", "")
+            # 保留源字段名
+            source_name = standardized_field.get("source_name", "")
+            # 强制使用系统标准的物理名称（基于属性名称生成）
+            standardized_field["source_name"] = source_name  # 保持源字段名不变
             standardized_field["physical_name"] = result["standard_physical_name"]
             standardized_field["attribute_name"] = result["attribute_name"]
             

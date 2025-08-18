@@ -29,6 +29,37 @@ async def code_refinement_node(state: EDWState):
             # 更新微调轮次
             current_round = state.get("current_refinement_round", 1)
             
+            # 🎯 发送微调后的代码到前端显示
+            session_id = state.get("session_id", "unknown")
+            from src.server.socket_manager import get_session_socket
+            
+            socket_queue = get_session_socket(session_id)
+            if socket_queue:
+                try:
+                    socket_queue.send_message(
+                        session_id,
+                        "enhanced_code",
+                        {
+                            "type": "enhanced_code",
+                            "content": refinement_result.get("enhanced_code"),
+                            "table_name": state.get("table_name", ""),
+                            "create_table_sql": refinement_result.get("new_table_ddl", state.get("create_table_sql")),
+                            "alter_table_sql": refinement_result.get("alter_statements", state.get("alter_table_sql")),
+                            "fields_count": len(state.get("fields", [])),
+                            "enhancement_type": state.get("enhancement_type", ""),
+                            "enhancement_mode": "refinement",  # 标记为微调模式
+                            "model_name": state.get("model_attribute_name", ""),
+                            "file_path": state.get("code_path", ""),
+                            "adb_path": state.get("adb_code_path", ""),
+                            "optimization_summary": refinement_result.get("optimization_summary", ""),
+                            "refinement_round": current_round,
+                            "timestamp": datetime.now().isoformat()
+                        }
+                    )
+                    logger.info(f"✅ Socket发送微调代码成功 (第{current_round}轮)")
+                except Exception as e:
+                    logger.warning(f"Socket发送微调代码失败: {e}")
+            
             # 记录微调历史
             refinement_history = state.get("refinement_history", [])
             refinement_history.append({

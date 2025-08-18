@@ -7,6 +7,8 @@
     <!-- 引入外部库 -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/sql.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/11.1.1/marked.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
 
@@ -2869,6 +2871,360 @@
             background: rgba(231, 76, 60, 0.2);
             color: #e74c3c;
         }
+        
+        /* SQL模态框样式 */
+        .sql-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            animation: fadeIn 0.2s ease;
+        }
+        
+        .sql-modal-content {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            width: 90%;
+            max-width: 800px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            animation: slideUp 0.3s ease;
+        }
+        
+        .sql-modal-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .sql-modal-header h3 {
+            margin: 0;
+            color: var(--text-primary);
+            font-size: 18px;
+        }
+        
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+        }
+        
+        .modal-close:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+        
+        .sql-modal-body {
+            padding: 20px;
+            overflow-y: auto;
+            flex: 1;
+        }
+        
+        .sql-modal-body pre {
+            margin: 0;
+            padding: 16px;
+            background: var(--bg-primary);
+            border-radius: 8px;
+            overflow-x: auto;
+        }
+        
+        .sql-modal-footer {
+            padding: 16px 20px;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+        }
+        
+        .sql-modal-footer button {
+            padding: 8px 20px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s ease;
+        }
+        
+        .sql-modal-footer button:first-child {
+            background: var(--accent-color);
+            color: white;
+        }
+        
+        .sql-modal-footer button:first-child:hover {
+            background: #5a52d5;
+            transform: translateY(-1px);
+        }
+        
+        .sql-modal-footer button:last-child {
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+        }
+        
+        .sql-modal-footer button:last-child:hover {
+            background: var(--border-color);
+        }
+        
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+        
+        @keyframes slideUp {
+            from {
+                transform: translateY(20px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+        
+        /* 代码标签页样式 */
+        .code-tabs {
+            display: flex;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            padding: 0 16px;
+            gap: 4px;
+        }
+        
+        .code-tab {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 16px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s ease;
+            font-size: 13px;
+            position: relative;
+            user-select: none;
+        }
+        
+        .code-tab:hover {
+            color: var(--text-primary);
+            background: var(--bg-tertiary);
+        }
+        
+        .code-tab.active {
+            color: var(--accent-color);
+            border-bottom-color: var(--accent-color);
+            background: var(--bg-primary);
+        }
+        
+        .code-tab .tab-icon {
+            font-size: 14px;
+        }
+        
+        .code-tab .tab-text {
+            font-weight: 500;
+        }
+        
+        /* 标签内容区域 */
+        .code-tab-content {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .tab-pane {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: none;
+        }
+        
+        .tab-pane.active {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* 代码显示包装器 */
+        .code-display-wrapper {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+        }
+        
+        /* 代码工具栏 */
+        .code-toolbar {
+            display: flex;
+            gap: 8px;
+            padding: 12px 16px;
+            background: rgba(0, 0, 0, 0.3);
+            border-bottom: 1px solid rgba(139, 148, 158, 0.1);
+            backdrop-filter: blur(10px);
+        }
+        
+        .code-tool-btn {
+            padding: 6px 14px;
+            background: rgba(139, 148, 158, 0.1);
+            color: var(--text-secondary);
+            border: 1px solid rgba(139, 148, 158, 0.2);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .code-tool-btn:hover {
+            background: rgba(139, 148, 158, 0.2);
+            color: var(--text-primary);
+            transform: translateY(-1px);
+        }
+        
+        /* 代码显示区域 */
+        .code-display {
+            flex: 1;
+            overflow: auto;
+            position: relative;
+        }
+        
+        .code-display pre {
+            margin: 0;
+            padding: 20px;
+            background: transparent;
+            min-height: 100%;
+            font-family: 'Consolas', 'Monaco', 'Courier New', 'Fira Code', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        
+        .code-display pre code {
+            display: block;
+            background: transparent;
+            color: #e6edf3;
+            padding: 0;
+            border-radius: 0;
+            white-space: pre;
+            word-wrap: normal;
+            overflow-x: auto;
+        }
+        
+        /* 行号样式 */
+        .code-display pre.line-numbers {
+            counter-reset: line;
+            padding-left: 60px;
+            position: relative;
+        }
+        
+        .code-display pre.line-numbers code {
+            counter-increment: line;
+        }
+        
+        .code-display pre.line-numbers::before {
+            content: counter(line);
+            display: inline-block;
+            width: 40px;
+            text-align: right;
+            margin-right: 16px;
+            color: rgba(139, 148, 158, 0.4);
+            position: absolute;
+            left: 16px;
+        }
+        
+        /* 编辑模式的textarea */
+        .code-editor-raw {
+            width: 100%;
+            height: 100%;
+            border: none;
+            padding: 20px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            background: #0d1117;
+            color: #e6edf3;
+            resize: none;
+            outline: none;
+            overflow-y: auto;
+        }
+        
+        /* 语法高亮增强 */
+        .hljs {
+            background: transparent !important;
+            padding: 0 !important;
+        }
+        
+        .hljs-keyword {
+            color: #ff79c6;
+            font-weight: bold;
+        }
+        
+        .hljs-string {
+            color: #f1fa8c;
+        }
+        
+        .hljs-comment {
+            color: #6272a4;
+            font-style: italic;
+        }
+        
+        .hljs-number {
+            color: #bd93f9;
+        }
+        
+        .hljs-function {
+            color: #50fa7b;
+        }
+        
+        .hljs-variable {
+            color: #8be9fd;
+        }
+        
+        .hljs-type {
+            color: #ff79c6;
+        }
+        
+        /* 调整代码面板布局以适应标签页 */
+        #codePanel {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        #codePanel .code-panel-header {
+            flex-shrink: 0;
+        }
+        
+        #codePanel .code-tabs {
+            flex-shrink: 0;
+        }
+        
+        #codePanel .code-tab-content {
+            flex: 1;
+            min-height: 0;
+        }
     </style>
 </head>
 <body>
@@ -3017,6 +3373,23 @@
             <button class="save-btn" id="saveBtn" onclick="saveCode()">💾 保存</button>
         </div>
     </div>
+    
+    <!-- 标签页导航 -->
+    <div class="code-tabs" id="codeTabs">
+        <div class="code-tab active" data-tab="enhanced-code" onclick="switchCodeTab('enhanced-code')">
+            <span class="tab-icon">📝</span>
+            <span class="tab-text">增强代码</span>
+        </div>
+        <div class="code-tab" data-tab="create-table" onclick="switchCodeTab('create-table')">
+            <span class="tab-icon">🔨</span>
+            <span class="tab-text">CREATE TABLE</span>
+        </div>
+        <div class="code-tab" data-tab="alter-table" onclick="switchCodeTab('alter-table')">
+            <span class="tab-icon">🔧</span>
+            <span class="tab-text">ALTER TABLE</span>
+        </div>
+    </div>
+    
     <!-- 文件元数据信息区域 -->
     <div class="code-meta-panel" id="codeMetaPanel" style="display: none;">
         <div class="meta-info-row">
@@ -3033,28 +3406,55 @@
         </div>
     </div>
 
-    <textarea class="code-editor" id="codeEditor" placeholder="# 欢迎使用数据开发助手！
-# 请在左侧描述你的需求，我将为你生成相应的代码
-# 你可以直接在这里编辑代码，修改后点击保存按钮
-
-# 示例：数据处理和优化
-import pandas as pd
-import matplotlib.pyplot as plt
-
-def analyze_data(data_file):
-    '''数据分析示例'''
-
-    # 读取数据
-    df = pd.read_csv(data_file)
-
-    # 基础统计
-    total_records = len(df)
-
-    print(f'总记录数: {total_records}')
-
-    return df
-
-# 等待你描述具体的数据开发需求..."></textarea>
+    <!-- 标签页内容区域 -->
+    <div class="code-tab-content" id="codeTabContent">
+        <!-- 增强代码标签页 -->
+        <div class="tab-pane active" data-pane="enhanced-code">
+            <div class="code-display-wrapper">
+                <div class="code-toolbar">
+                    <button class="code-tool-btn" onclick="copyCodeContent('enhanced')">📋 复制</button>
+                    <button class="code-tool-btn" onclick="toggleFullscreen('enhanced')">🔍 全屏</button>
+                    <button class="code-tool-btn" onclick="toggleEditMode('enhanced')">✏️ 编辑</button>
+                </div>
+                <div class="code-display" id="enhancedCodeDisplay">
+                    <pre class="line-numbers"><code class="language-sql" id="enhancedCodeContent">-- 欢迎使用数据开发助手！
+-- 请在左侧描述你的需求，我将为你生成相应的代码
+-- 增强代码将在这里显示...</code></pre>
+                </div>
+                <textarea class="code-editor-raw" id="codeEditor" style="display:none;" placeholder="编辑模式下可修改代码..."></textarea>
+            </div>
+        </div>
+        
+        <!-- CREATE TABLE标签页 -->
+        <div class="tab-pane" data-pane="create-table">
+            <div class="code-display-wrapper">
+                <div class="code-toolbar">
+                    <button class="code-tool-btn" onclick="copyCodeContent('create')">📋 复制</button>
+                    <button class="code-tool-btn" onclick="toggleFullscreen('create')">🔍 全屏</button>
+                </div>
+                <div class="code-display" id="createTableDisplay">
+                    <pre class="line-numbers"><code class="language-sql" id="createTableContent">-- CREATE TABLE 语句将在这里显示
+-- 等待生成增强代码...</code></pre>
+                </div>
+                <textarea class="code-editor-raw" id="createTableEditor" style="display:none;"></textarea>
+            </div>
+        </div>
+        
+        <!-- ALTER TABLE标签页 -->
+        <div class="tab-pane" data-pane="alter-table">
+            <div class="code-display-wrapper">
+                <div class="code-toolbar">
+                    <button class="code-tool-btn" onclick="copyCodeContent('alter')">📋 复制</button>
+                    <button class="code-tool-btn" onclick="toggleFullscreen('alter')">🔍 全屏</button>
+                </div>
+                <div class="code-display" id="alterTableDisplay">
+                    <pre class="line-numbers"><code class="language-sql" id="alterTableContent">-- ALTER TABLE 语句将在这里显示
+-- 等待生成增强代码...</code></pre>
+                </div>
+                <textarea class="code-editor-raw" id="alterTableEditor" style="display:none;"></textarea>
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- 会话历史面板 -->
@@ -3112,6 +3512,291 @@ def analyze_data(data_file):
     let thinkingBoxVisible = false;
     let thinkingSteps = new Map(); // 存储思考步骤状态
     let currentThinkingMessageId = null; // 当前思考消息的ID
+    
+    // ===== 统一消息管理系统 =====
+    /**
+     * 消息类型枚举
+     */
+    const MessageType = {
+        USER: 'user',              // 用户输入消息
+        AI_STREAM: 'ai_stream',    // chat_stream API响应
+        THINKING: 'thinking',      // 思考框消息
+        SYSTEM: 'system',          // 后端主动推送的系统消息
+        AGENT: 'agent'             // Agent实时消息
+    };
+    
+    /**
+     * 消息管理器类 - 统一管理所有消息和思考框生命周期
+     */
+    class MessageManager {
+        constructor() {
+            this.messages = new Map();
+            this.thinkingState = {
+                visible: false,
+                messageId: null,
+                streamSessionId: null,  // 关联的stream会话ID
+                startTime: null,
+                timeout: null
+            };
+            this.messageOrder = [];  // 维护消息顺序
+        }
+        
+        /**
+         * 添加消息到容器
+         */
+        addMessage(type, content, options = {}) {
+            const messageId = this.generateMessageId(type);
+            const messageData = {
+                id: messageId,
+                type: type,
+                content: content,
+                timestamp: Date.now(),
+                ...options
+            };
+            
+            this.messages.set(messageId, messageData);
+            this.messageOrder.push(messageId);
+            
+            // 根据消息类型选择渲染方式
+            switch(type) {
+                case MessageType.USER:
+                    return this.renderUserMessage(messageData);
+                case MessageType.AI_STREAM:
+                    return this.renderStreamMessage(messageData);
+                case MessageType.THINKING:
+                    return this.renderThinkingBox(messageData);
+                case MessageType.SYSTEM:
+                    return this.renderSystemMessage(messageData);
+                case MessageType.AGENT:
+                    return this.renderAgentMessage(messageData);
+                default:
+                    console.warn('未知消息类型:', type);
+                    return null;
+            }
+        }
+        
+        /**
+         * 开始思考框显示
+         */
+        startThinking(sessionId) {
+            // 如果已有思考框在显示，先结束它
+            if (this.thinkingState.visible) {
+                console.log('🔄 结束之前的思考框，开始新的');
+                this.endThinking();
+            }
+            
+            console.log('🧠 开始显示思考框，sessionId:', sessionId);
+            
+            const messageId = this.generateMessageId(MessageType.THINKING);
+            
+            this.thinkingState = {
+                visible: true,
+                messageId: messageId,
+                streamSessionId: sessionId,
+                startTime: Date.now(),
+                timeout: setTimeout(() => {
+                    console.warn('⏰ 思考框超时，自动隐藏');
+                    this.endThinking();
+                }, 60000)  // 60秒超时
+            };
+            
+            // 创建思考框DOM
+            const messagesContainer = document.getElementById('chatMessages');
+            const thinkingDiv = document.createElement('div');
+            thinkingDiv.id = messageId;
+            thinkingDiv.className = 'thinking-steps-content';
+            thinkingDiv.innerHTML = `
+                <div class="thinking-status-line">
+                    <div class="thinking-spinner"></div>
+                    <div class="thinking-status-text">AI正在思考...</div>
+                </div>
+                <div class="thinking-detail-text"></div>
+            `;
+            
+            // 添加到容器末尾
+            messagesContainer.appendChild(thinkingDiv);
+            
+            // 更新全局状态（为了兼容旧代码）
+            thinkingBoxVisible = true;
+            currentThinkingMessageId = messageId;
+            
+            // 滚动到底部
+            this.scrollToBottom();
+            
+            return messageId;
+        }
+        
+        /**
+         * 结束思考框显示
+         */
+        endThinking(force = false) {
+            if (!this.thinkingState.visible && !force) {
+                console.log('⚠️ 思考框已经隐藏');
+                return;
+            }
+            
+            console.log('🧠 结束思考框显示');
+            
+            // 清理超时定时器
+            if (this.thinkingState.timeout) {
+                clearTimeout(this.thinkingState.timeout);
+            }
+            
+            // 移除思考框DOM
+            const thinkingBox = document.getElementById(this.thinkingState.messageId);
+            if (thinkingBox) {
+                thinkingBox.classList.add('hiding');
+                setTimeout(() => {
+                    thinkingBox.remove();
+                }, 500);
+            }
+            
+            // 重置状态
+            this.thinkingState = {
+                visible: false,
+                messageId: null,
+                streamSessionId: null,
+                startTime: null,
+                timeout: null
+            };
+            
+            // 更新全局状态（为了兼容旧代码）
+            thinkingBoxVisible = false;
+            currentThinkingMessageId = null;
+            thinkingSteps.clear();
+        }
+        
+        /**
+         * 更新思考框进度
+         */
+        updateThinkingProgress(stepId, status, message) {
+            if (!this.thinkingState.visible || !this.thinkingState.messageId) {
+                console.warn('⚠️ 思考框不可见，无法更新进度');
+                return;
+            }
+            
+            const thinkingBox = document.getElementById(this.thinkingState.messageId);
+            if (!thinkingBox) return;
+            
+            const statusText = thinkingBox.querySelector('.thinking-status-text');
+            const detailText = thinkingBox.querySelector('.thinking-detail-text');
+            
+            if (statusText) {
+                statusText.textContent = message || 'AI正在思考...';
+            }
+            
+            if (detailText && status !== 'completed') {
+                detailText.textContent = `${stepId}: ${status}`;
+            }
+        }
+        
+        /**
+         * 生成消息ID
+         */
+        generateMessageId(type) {
+            return `${type}-${Date.now()}-${Math.random().toString(36).substr(2, 8)}`;
+        }
+        
+        /**
+         * 渲染用户消息
+         */
+        renderUserMessage(messageData) {
+            return addUserMessage(messageData.content, messageData);
+        }
+        
+        /**
+         * 渲染流式消息
+         */
+        renderStreamMessage(messageData) {
+            return addStreamMessage(messageData.content, 'ai');
+        }
+        
+        /**
+         * 渲染系统消息
+         */
+        renderSystemMessage(messageData) {
+            const messagesContainer = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message system';
+            messageDiv.setAttribute('data-message-type', 'system');
+            
+            messageDiv.innerHTML = `
+                <div class="message-content">
+                    <div class="system-message-content">${messageData.content}</div>
+                </div>
+            `;
+            
+            // 插入到思考框前面
+            this.insertBeforeThinking(messageDiv, messagesContainer);
+            this.scrollToBottom();
+            
+            return messageData.id;
+        }
+        
+        /**
+         * 渲染Agent消息
+         */
+        renderAgentMessage(messageData) {
+            // 使用现有的Agent消息处理逻辑
+            return this.renderSystemMessage(messageData);
+        }
+        
+        /**
+         * 在思考框前插入消息
+         */
+        insertBeforeThinking(element, container) {
+            if (this.thinkingState.visible && this.thinkingState.messageId) {
+                const thinkingBox = document.getElementById(this.thinkingState.messageId);
+                if (thinkingBox && thinkingBox.parentNode === container) {
+                    container.insertBefore(element, thinkingBox);
+                    console.log('📍 消息插入到思考框前面');
+                    return true;
+                }
+            }
+            
+            // 思考框不存在，正常添加到末尾
+            container.appendChild(element);
+            return false;
+        }
+        
+        /**
+         * 滚动到底部
+         */
+        scrollToBottom() {
+            requestAnimationFrame(() => {
+                const messagesContainer = document.getElementById('chatMessages');
+                if (messagesContainer) {
+                    messagesContainer.scrollTo({
+                        top: messagesContainer.scrollHeight,
+                        behavior: 'smooth'
+                    });
+                }
+            });
+        }
+        
+        /**
+         * 检查是否为当前stream会话的思考框
+         */
+        isCurrentStreamThinking(sessionId) {
+            return this.thinkingState.visible && 
+                   this.thinkingState.streamSessionId === sessionId;
+        }
+        
+        /**
+         * 清理过期消息
+         */
+        cleanupOldMessages() {
+            const maxMessages = 1000;
+            if (this.messageOrder.length > maxMessages) {
+                const toRemove = this.messageOrder.splice(0, this.messageOrder.length - maxMessages);
+                toRemove.forEach(id => this.messages.delete(id));
+                console.log('🧹 清理了', toRemove.length, '条过期消息');
+            }
+        }
+    }
+    
+    // 创建全局消息管理器实例
+    const messageManager = new MessageManager();
     
     /**
      * 保存等待中的增强信息
@@ -4653,29 +5338,32 @@ def analyze_data(data_file):
             messageLength: message?.length || 0
         });
         
-        // 🎯 立即显示思考框，不等待SocketIO消息
+        // 生成新的session ID（如果需要）
+        if (!currentSessionId) {
+            currentSessionId = `session-${currentPage}-${Date.now()}-${Math.random().toString(36).substr(2, 8)}`;
+            console.log('🆔 生成新session_id:', currentSessionId);
+        }
+        
+        // 🎯 使用消息管理器显示思考框
         console.log('🔍 检查是否需要显示思考框', {
-            thinkingBoxVisible,
+            thinkingVisible: messageManager.thinkingState.visible,
             waitingForInterruptResponse: window.waitingForInterruptResponse,
-            currentThinkingMessageId
+            currentSessionId: currentSessionId
         });
         
         // 🎯 关键修复：在中断恢复时强制显示新的思考框
         if (window.waitingForInterruptResponse) {
             console.log('💭 这是中断恢复，强制重置并显示新思考框');
-            // 强制重置状态
-            thinkingBoxVisible = false;
-            currentThinkingMessageId = null;
-            thinkingSteps.clear();
+            // 强制结束之前的思考框
+            messageManager.endThinking(true);
             // 清理DOM中可能存在的旧思考框
-            const oldThinkingBoxes = document.querySelectorAll('.message.thinking');
+            const oldThinkingBoxes = document.querySelectorAll('.thinking-steps-content');
             oldThinkingBoxes.forEach(box => box.remove());
         }
         
-        if (!thinkingBoxVisible) {
-            console.log('🧠 立即显示思考框（包括中断恢复场景）');
-            showThinkingBox();
-        }
+        // 使用消息管理器开始思考框
+        console.log('🧠 使用消息管理器显示思考框');
+        messageManager.startThinking(currentSessionId);
 
         try {
             // 确保有session_id - 如果在等待中断响应，不要重新生成session_id
@@ -4942,9 +5630,9 @@ def analyze_data(data_file):
                     }
 
                     // 在stream响应完全结束时隐藏思考框（但不要在等待中断响应时隐藏）
-                    if (thinkingBoxVisible && !window.waitingForInterruptResponse) {
+                    if (messageManager.isCurrentStreamThinking(currentSessionId) && !window.waitingForInterruptResponse) {
                         console.log('✅ Stream响应完成，现在隐藏思考框');
-                        hideThinkingBox();
+                        messageManager.endThinking();
                     } else if (window.waitingForInterruptResponse) {
                         console.log('💭 等待中断响应，保持思考框显示');
                     }
@@ -4981,8 +5669,8 @@ def analyze_data(data_file):
                                 
                             } else if (data.type === 'enhanced_code') {
                                 // 增强后的代码
-                                console.log('🚀 收到增强代码');
-                                displayEnhancedCode(data.content, data.table_name);
+                                console.log('🚀 收到增强代码:', data);
+                                displayEnhancedCode(data);
                                 
                             } else if (data.type === 'refined_code') {
                                 // 微调后的代码
@@ -5068,8 +5756,8 @@ def analyze_data(data_file):
             removeProcessingIndicator();
             
             // 隐藏思考框
-            if (thinkingBoxVisible) {
-                hideThinkingBox();
+            if (messageManager.thinkingState.visible) {
+                messageManager.endThinking();
             }
 
             // 添加错误消息
@@ -5212,24 +5900,24 @@ ${improvements}
             case 'workflow_start':
                 console.log('🚀 收到工作流开始消息:', data.data);
                 // 工作流开始时确认思考框已显示（通常在handleStreamChat中已经显示）
-                if (!thinkingBoxVisible) {
+                if (!messageManager.thinkingState.visible) {
                     console.log('🎬 工作流开始，补充显示思考框');
-                    showThinkingBox();
+                    messageManager.startThinking(data.session_id || currentSessionId);
                 }
                 if (data.data && data.data.message) {
-                    updateThinkingStep('workflow', 'started', data.data.message);
+                    messageManager.updateThinkingProgress('workflow', 'started', data.data.message);
                 }
                 break;
 
             case 'workflow_resume':
                 console.log('🔄 收到工作流恢复消息:', data.data);
                 // 🎯 工作流恢复时立即显示思考框（中断恢复的第二轮对话）
-                if (!thinkingBoxVisible) {
+                if (!messageManager.thinkingState.visible) {
                     console.log('🎬 工作流恢复，重新显示思考框');
-                    showThinkingBox();
+                    messageManager.startThinking(data.session_id || currentSessionId);
                 }
                 if (data.data && data.data.message) {
-                    updateThinkingStep('workflow_resume', 'resumed', data.data.message);
+                    messageManager.updateThinkingProgress('workflow_resume', 'resumed', data.data.message);
                 }
                 break;
 
@@ -5244,6 +5932,11 @@ ${improvements}
             case 'original_code':
                 console.log('📄 收到原始代码消息:', data.data);
                 displayOriginalCode(data.data);
+                break;
+            
+            case 'enhanced_code':
+                console.log('🚀 收到增强代码消息:', data.data);
+                displayEnhancedCode(data.data);
                 break;
 
             case 'tool_progress':
@@ -5274,17 +5967,17 @@ ${improvements}
         if (data.action === 'start') {
             // 工具开始调用
             const message = data.message || `🔧 正在使用工具: ${data.tool_name}`;
-            updateThinkingStep(`tool_${data.tool_name}`, 'started', message);
+            messageManager.updateThinkingProgress(`tool_${data.tool_name}`, 'started', message);
             
         } else if (data.action === 'complete') {
             // 工具调用完成
             const message = data.message || `✅ 工具执行完成 (${data.duration}秒)`;
-            updateThinkingStep(`tool_${data.tool_name}`, 'completed', message);
+            messageManager.updateThinkingProgress(`tool_${data.tool_name}`, 'completed', message);
             
         } else if (data.action === 'error') {
             // 工具调用出错
             const message = `❌ 工具执行失败: ${data.error}`;
-            updateThinkingStep(`tool_${data.tool_name}`, 'error', message);
+            messageManager.updateThinkingProgress(`tool_${data.tool_name}`, 'error', message);
         }
     }
 
@@ -5294,12 +5987,12 @@ ${improvements}
         // 根据决策动作类型处理
         if (data.action === 'thinking') {
             // Agent开始思考
-            updateThinkingStep(`${data.agent_type}_thinking`, 'started', data.message);
+            messageManager.updateThinkingProgress(`${data.agent_type}_thinking`, 'started', data.message);
             
         } else if (data.action === 'tool_selected') {
             // Agent选择了工具
             const message = data.message || `🎯 选择工具: ${data.tool_name}`;
-            updateThinkingStep(`${data.agent_type}_decision`, 'processing', message);
+            messageManager.updateThinkingProgress(`${data.agent_type}_decision`, 'processing', message);
         }
     }
 
@@ -5309,7 +6002,7 @@ ${improvements}
         // Agent任务完成
         if (data.action === 'finished') {
             const message = data.message || `✅ ${data.agent_type}智能体任务完成`;
-            updateThinkingStep(`${data.agent_type}_complete`, 'completed', message);
+            messageManager.updateThinkingProgress(`${data.agent_type}_complete`, 'completed', message);
         }
     }
 
@@ -6365,168 +7058,34 @@ def optimize_data_processing():
      * @param {Element} messagesContainer - 消息容器
      */
     function insertMessageBeforeThinking(messageElement, messagesContainer) {
-        // 检查思考框是否存在且可见
-        if (thinkingBoxVisible && currentThinkingMessageId) {
-            const thinkingBox = document.getElementById(currentThinkingMessageId);
-            if (thinkingBox && thinkingBox.parentNode === messagesContainer) {
-                // 思考框存在，在其前面插入新消息
-                messagesContainer.insertBefore(messageElement, thinkingBox);
-                console.log('📍 消息已插入到思考框前面，保持思考框在底部');
-                return true;
-            } else {
-                // 思考框状态不一致，重置状态并使用普通插入
-                console.warn('⚠️ 思考框状态不一致，重置状态');
-                thinkingBoxVisible = false;
-                currentThinkingMessageId = null;
-            }
-        }
-        
-        // 思考框不存在或不可见，正常添加到末尾
-        messagesContainer.appendChild(messageElement);
-        console.log('📍 消息已添加到容器末尾（无思考框）');
-        return false;
+        // 使用消息管理器的插入方法
+        return messageManager.insertBeforeThinking(messageElement, messagesContainer);
     }
     
     /**
      * 显示思考框
      */
     function showThinkingBox() {
-        console.log('🎯 showThinkingBox 被调用', {
-            thinkingBoxVisible,
-            currentThinkingMessageId,
-            timestamp: Date.now()
-        });
+        console.log('🎯 showThinkingBox 被调用 (使用消息管理器)');
         
-        // 如果已经有思考框显示，检查是否真的存在
-        if (thinkingBoxVisible && currentThinkingMessageId) {
-            // 检查DOM中是否真的存在思考框
-            const existingThinking = document.getElementById(currentThinkingMessageId);
-            if (existingThinking) {
-                console.log('⚠️ 思考框已存在，跳过重复创建', currentThinkingMessageId);
-                return;
-            } else {
-                console.log('⚠️ 思考框状态显示存在但DOM中找不到，重置状态并继续创建新的');
-                thinkingBoxVisible = false;
-                currentThinkingMessageId = null;
-                thinkingSteps.clear();
-                // 🎯 关键修复：不要return，继续执行创建新思考框的逻辑
-            }
-        }
+        // 使用消息管理器启动思考框
+        const messageId = messageManager.startThinking(currentSessionId);
         
-        // 清理任何可能遗留的思考框
-        const existingThinkingBoxes = document.querySelectorAll('.thinking-steps-content, .thinking-box-simple, .message.thinking');
-        if (existingThinkingBoxes.length > 0) {
-            console.log(`🧹 发现 ${existingThinkingBoxes.length} 个遗留的思考框，清理中...`);
-            existingThinkingBoxes.forEach(box => box.remove());
-        }
+        console.log('✅ 思考框已通过消息管理器创建', messageId);
         
-        // 清空步骤状态
-        thinkingSteps.clear();
-        
-        // 创建思考过程消息
-        const messagesContainer = document.getElementById('chatMessages');
-        if (!messagesContainer) {
-            console.error('❌ 找不到消息容器');
-            return;
-        }
-        
-        // 生成唯一ID
-        currentThinkingMessageId = 'thinking-' + Date.now() + '-' + Math.random().toString(36).substring(7);
-        console.log('🆔 生成新的思考框ID:', currentThinkingMessageId);
-        
-        // 创建思考消息元素（只保留thinking-steps-content样式）
-        const thinkingMessage = document.createElement('div');
-        thinkingMessage.className = 'thinking-steps-content';
-        thinkingMessage.id = currentThinkingMessageId;
-        thinkingMessage.innerHTML = `
-            <div class="thinking-status-line">
-                <span class="thinking-status-text">⚙️ 执行工具: **execute_sql**...</span>
-                <div class="thinking-spinner"></div>
-            </div>
-            <div class="thinking-detail-text">处理中...</div>
-        `;
-        
-        // 找到最后一个非思考框消息，插入在其后
-        const allMessages = messagesContainer.querySelectorAll('.message, .thinking-steps-content');
-        let insertAfter = null;
-        
-        // 从后往前找到最后一个用户或AI消息
-        for (let i = allMessages.length - 1; i >= 0; i--) {
-            const msg = allMessages[i];
-            if (!msg.classList.contains('thinking') && 
-                !msg.classList.contains('thinking-steps-content') && 
-                !msg.classList.contains('processing-indicator')) {
-                insertAfter = msg;
-                break;
-            }
-        }
-        
-        if (insertAfter) {
-            // 在最后一个对话消息后插入
-            insertAfter.parentNode.insertBefore(thinkingMessage, insertAfter.nextSibling);
-            console.log('📍 思考框插入在最后一个对话消息之后');
-        } else {
-            // 如果没有找到对话消息，添加到容器末尾
-            messagesContainer.appendChild(thinkingMessage);
-            console.log('📍 思考框添加到容器末尾');
-        }
-        
-        // 确认DOM添加成功
-        const addedElement = document.getElementById(currentThinkingMessageId);
-        if (!addedElement) {
-            console.error('❌ 思考框添加到DOM失败');
-            return;
-        }
-        
-        // 滚动到底部
-        scrollToBottomSmooth();
-        
-        thinkingBoxVisible = true;
-        console.log('✅ 思考过程消息显示成功', currentThinkingMessageId);
+        return messageId;
     }
     
     /**
      * 隐藏思考框
      */
     function hideThinkingBox() {
-        console.log('🔄 hideThinkingBox 被调用', {
-            thinkingBoxVisible,
-            currentThinkingMessageId
-        });
+        console.log('🔄 hideThinkingBox 被调用 (使用消息管理器)');
         
-        if (!thinkingBoxVisible || !currentThinkingMessageId) {
-            console.log('⚠️ 思考框已隐藏或不存在，跳过隐藏操作');
-            return;
-        }
+        // 使用消息管理器结束思考框
+        messageManager.endThinking();
         
-        const thinkingMessage = document.getElementById(currentThinkingMessageId);
-        if (!thinkingMessage) {
-            console.log('⚠️ 思考框DOM元素不存在，直接重置状态');
-            thinkingBoxVisible = false;
-            thinkingSteps.clear();
-            currentThinkingMessageId = null;
-            return;
-        }
-        
-        // 立即重置状态变量，避免状态不一致
-        thinkingBoxVisible = false;
-        thinkingSteps.clear();
-        const messageId = currentThinkingMessageId;
-        currentThinkingMessageId = null;
-        
-        console.log('✅ 思考框状态已重置');
-        
-        // 添加隐藏动画类
-        thinkingMessage.classList.add('hiding');
-        
-        // 延迟移除DOM元素
-        setTimeout(() => {
-            if (thinkingMessage && thinkingMessage.parentNode) {
-                thinkingMessage.parentNode.removeChild(thinkingMessage);
-                console.log('🗑️ 思考框DOM元素已移除:', messageId);
-            }
-        }, 500);
-        console.log('✅ 隐藏思考过程消息');
+        console.log('✅ 思考框已通过消息管理器隐藏');
     }
     
     /**
@@ -6537,33 +7096,15 @@ def optimize_data_processing():
             nodeName,
             status,
             message,
-            thinkingBoxVisible,
-            currentThinkingMessageId
+            thinkingVisible: messageManager.thinkingState.visible
         });
         
-        if (!thinkingBoxVisible || !currentThinkingMessageId) {
-            console.log('❌ 思考框不可见或ID不存在，跳过更新');
-            return;
-        }
+        // 使用消息管理器更新思考进度
+        messageManager.updateThinkingProgress(nodeName, status, message);
         
-        // 直接更新思考框内容
-        const thinkingBox = document.getElementById(currentThinkingMessageId);
-        if (!thinkingBox) {
-            console.error('❌ 思考框不存在');
-            return;
-        }
-        
-        // 更新状态文本
-        const statusText = thinkingBox.querySelector('.thinking-status-text');
-        if (statusText) {
-            statusText.textContent = `⚙️ ${nodeName}: ${message || '处理中...'}`;
-        }
-        
-        // 更新详细文本
-        const detailText = thinkingBox.querySelector('.thinking-detail-text');
-        if (detailText) {
-            detailText.textContent = status === 'completed' ? '✅ 完成' : 
-                                    status === 'failed' ? '❌ 失败' : '处理中...';
+        // 兼容旧代码：同时更新全局变量中的思考步骤
+        if (messageManager.thinkingState.visible && messageManager.thinkingState.messageId) {
+            thinkingSteps.set(nodeName, { status, message, timestamp: Date.now() });
         }
     }
     
@@ -6775,10 +7316,24 @@ def optimize_data_processing():
             // 等待页面切换完成再设置代码
             setTimeout(() => {
                 loadCodeToEditorWithMeta(source_code, table_name, language, codeData);
+                // 自动切换到增强代码标签页
+                switchCodeTab('enhanced-code');
             }, 300);
         } else {
             // 已经在workspace模式，直接加载代码
             loadCodeToEditorWithMeta(source_code, table_name, language, codeData);
+            // 自动切换到增强代码标签页
+            switchCodeTab('enhanced-code');
+        }
+        
+        // 清空CREATE TABLE和ALTER TABLE标签页（因为这是原始代码，还没有增强）
+        const createTableContent = document.getElementById('createTableContent');
+        const alterTableContent = document.getElementById('alterTableContent');
+        if (createTableContent) {
+            createTableContent.textContent = '-- 等待生成CREATE TABLE语句...';
+        }
+        if (alterTableContent) {
+            alterTableContent.textContent = '-- 等待生成ALTER TABLE语句...';
         }
         
         // 只显示简单的成功消息，不显示绿色代码框
@@ -6820,28 +7375,38 @@ def optimize_data_processing():
      * 加载代码到编辑器并显示元数据信息
      */
     function loadCodeToEditorWithMeta(code, tableName, language, codeData) {
+        // 更新新的三标签页代码编辑器
+        const enhancedCodeContent = document.getElementById('enhancedCodeContent');
         const codeEditor = document.getElementById('codeEditor');
         const languageTag = document.getElementById('languageTag');
         const fileName = document.getElementById('fileName');
         const branchInfo = document.getElementById('branchInfo');
         const branchName = document.getElementById('branchName');
         
-        if (!codeEditor || !languageTag || !fileName) {
+        if (!languageTag || !fileName) {
             console.error('❌ 代码编辑器DOM元素未找到');
             showError('代码编辑器元素未找到');
             return;
         }
         
-        // 更新代码内容
-        codeEditor.value = code;
-        codeEditor.style.opacity = '1';
-        originalCode = code;
+        // 更新增强代码标签页（用于显示GitHub获取的原始代码）
+        if (enhancedCodeContent && code) {
+            enhancedCodeContent.textContent = code;
+            // 应用语法高亮
+            if (typeof hljs !== 'undefined') {
+                hljs.highlightElement(enhancedCodeContent);
+            }
+        }
         
-        // 设置语言类型class
-        codeEditor.className = `code-editor ${language === 'python' ? 'language-python' : 'language-sql'}`;
+        // 同时更新隐藏的textarea（用于编辑模式）
+        if (codeEditor) {
+            codeEditor.value = code;
+            codeEditor.style.opacity = '1';
+            originalCode = code;
+        }
         
         // 更新语言标签和文件名
-        const languageDisplay = language === 'python' ? 'Python' : 'SQL';
+        const languageDisplay = language === 'python' ? 'PYTHON' : 'SQL';
         languageTag.textContent = languageDisplay;
         
         // 修复语言标签样式
@@ -6855,7 +7420,12 @@ def optimize_data_processing():
             languageTag.style.color = 'white';
         }
         
-        fileName.textContent = `${tableName} - 原始代码`;
+        // 根据代码数据类型更新文件名显示
+        if (codeData && codeData.file_name) {
+            fileName.textContent = codeData.file_name;
+        } else {
+            fileName.textContent = `${tableName} - 原始代码`;
+        }
         
         // 更新元数据信息面板
         if (codeData) {
@@ -6951,31 +7521,80 @@ def optimize_data_processing():
     /**
      * 显示增强后的代码
      */
-    function displayEnhancedCode(code, tableName) {
-        const messagesContainer = document.getElementById('chatMessages');
-        const codeDiv = document.createElement('div');
-        codeDiv.className = 'message ai enhanced-code';
-        codeDiv.innerHTML = `
-            <div class="enhanced-code-header">
-                🚀 <strong>代码增强完成</strong> - 表: ${tableName || '未知'}
-            </div>
-            <pre><code class="language-sql">${escapeHtml(code)}</code></pre>
-            <div class="code-actions">
-                <button onclick="copyToClipboard('${escapeHtml(code).replace(/'/g, "\\'")}')">📋 复制代码</button>
-            </div>
-        `;
-        messagesContainer.appendChild(codeDiv);
+    function displayEnhancedCode(data) {
+        const code = data.content || '';
+        const tableName = data.table_name || '未知';
+        const filePath = data.file_path || data.adb_path || '';
+        const enhancementMode = data.enhancement_mode || 'initial_enhancement';
+        const fieldsCount = data.fields_count || 0;
         
-        // 应用语法高亮
-        if (typeof Prism !== 'undefined') {
-            Prism.highlightAllUnder(codeDiv);
+        // 🎯 只更新右侧代码编辑器（所有三个标签页）
+        const enhancedCodeContent = document.getElementById('enhancedCodeContent');
+        const createTableContent = document.getElementById('createTableContent');
+        const alterTableContent = document.getElementById('alterTableContent');
+        const codeEditor = document.getElementById('codeEditor');
+        const createTableEditor = document.getElementById('createTableEditor');
+        const alterTableEditor = document.getElementById('alterTableEditor');
+        const languageTag = document.getElementById('languageTag');
+        const fileName = document.getElementById('fileName');
+        
+        // 更新增强代码标签页
+        if (enhancedCodeContent && code) {
+            enhancedCodeContent.textContent = code;
+            // 同时更新隐藏的textarea（用于编辑模式）
+            if (codeEditor) {
+                codeEditor.value = code;
+            }
+            // 应用语法高亮
+            if (typeof hljs !== 'undefined') {
+                hljs.highlightElement(enhancedCodeContent);
+            }
         }
         
-        // 滚动到底部
-        messagesContainer.scrollTo({
-            top: messagesContainer.scrollHeight,
-            behavior: 'smooth'
-        });
+        // 更新CREATE TABLE标签页
+        if (createTableContent && data.create_table_sql) {
+            createTableContent.textContent = data.create_table_sql;
+            if (createTableEditor) {
+                createTableEditor.value = data.create_table_sql;
+            }
+            // 应用语法高亮
+            if (typeof hljs !== 'undefined') {
+                hljs.highlightElement(createTableContent);
+            }
+        }
+        
+        // 更新ALTER TABLE标签页
+        if (alterTableContent && data.alter_table_sql) {
+            alterTableContent.textContent = data.alter_table_sql;
+            if (alterTableEditor) {
+                alterTableEditor.value = data.alter_table_sql;
+            }
+            // 应用语法高亮
+            if (typeof hljs !== 'undefined') {
+                hljs.highlightElement(alterTableContent);
+            }
+        }
+        
+        // 更新文件名和语言标签
+        if (fileName && filePath) {
+            const fileNameOnly = filePath.split('/').pop() || filePath.split('\\').pop() || 'enhanced_code.sql';
+            fileName.textContent = fileNameOnly;
+            fileName.title = filePath;
+        }
+        
+        if (languageTag) {
+            const language = filePath.endsWith('.py') ? 'PYTHON' : 'SQL';
+            languageTag.textContent = language;
+            languageTag.className = `language-tag ${language.toLowerCase()}`;
+        }
+        
+        // 自动切换到增强代码标签页
+        switchCodeTab('enhanced-code');
+        
+        console.log('✅ 右侧代码编辑器已更新（包含所有标签页）');
+        console.log('  - 增强代码:', code ? code.length + ' 字符' : '无');
+        console.log('  - CREATE TABLE:', data.create_table_sql ? data.create_table_sql.length + ' 字符' : '无');
+        console.log('  - ALTER TABLE:', data.alter_table_sql ? data.alter_table_sql.length + ' 字符' : '无');
     }
     
     /**
@@ -7078,13 +7697,13 @@ def optimize_data_processing():
         console.log(`📊 节点 ${nodeName} 状态: ${status} - ${message}`);
         
         // 收到任何节点状态时，如果思考框不可见就显示它
-        if (!thinkingBoxVisible) {
+        if (!messageManager.thinkingState.visible) {
             console.log('🤔 首次收到节点状态，显示思考框');
-            showThinkingBox();
+            messageManager.startThinking(currentSessionId);
         }
         
         // 更新思考步骤
-        if (thinkingBoxVisible) {
+        if (messageManager.thinkingState.visible) {
             console.log(`🔄 更新思考步骤: ${nodeName} -> ${status}`);
             updateThinkingStep(nodeName, status, message);
         } else {
@@ -7094,6 +7713,117 @@ def optimize_data_processing():
         // 错误状态额外显示错误提示
         if (status === 'failed' || status === 'error') {
             showError(`节点 ${nodeName} 执行失败: ${message}`, 5000);
+        }
+    }
+    
+    /**
+     * 切换代码标签页
+     */
+    function switchCodeTab(tabName) {
+        // 更新标签样式
+        document.querySelectorAll('.code-tab').forEach(tab => {
+            if (tab.dataset.tab === tabName) {
+                tab.classList.add('active');
+            } else {
+                tab.classList.remove('active');
+            }
+        });
+        
+        // 更新内容面板
+        document.querySelectorAll('.tab-pane').forEach(pane => {
+            if (pane.dataset.pane === tabName) {
+                pane.classList.add('active');
+            } else {
+                pane.classList.remove('active');
+            }
+        });
+    }
+    
+    /**
+     * 复制代码内容
+     */
+    function copyCodeContent(type) {
+        let content = '';
+        if (type === 'enhanced') {
+            const codeElement = document.getElementById('enhancedCodeContent');
+            const textarea = document.getElementById('codeEditor');
+            content = codeElement ? codeElement.textContent : (textarea ? textarea.value : '');
+        } else if (type === 'create') {
+            const codeElement = document.getElementById('createTableContent');
+            content = codeElement ? codeElement.textContent : '';
+        } else if (type === 'alter') {
+            const codeElement = document.getElementById('alterTableContent');
+            content = codeElement ? codeElement.textContent : '';
+        }
+        
+        if (content) {
+            navigator.clipboard.writeText(content).then(() => {
+                showSuccess('代码已复制到剪贴板', 2000);
+            }).catch(err => {
+                console.error('复制失败:', err);
+                showError('复制失败，请手动复制', 3000);
+            });
+        }
+    }
+    
+    /**
+     * 切换全屏模式
+     */
+    function toggleFullscreen(type) {
+        let displayElement = null;
+        if (type === 'enhanced') {
+            displayElement = document.getElementById('enhancedCodeDisplay');
+        } else if (type === 'create') {
+            displayElement = document.getElementById('createTableDisplay');
+        } else if (type === 'alter') {
+            displayElement = document.getElementById('alterTableDisplay');
+        }
+        
+        if (displayElement) {
+            if (!document.fullscreenElement) {
+                displayElement.requestFullscreen().catch(err => {
+                    console.error('无法进入全屏模式:', err);
+                    showError('全屏模式不可用', 2000);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
+    }
+    
+    /**
+     * 切换编辑模式
+     */
+    function toggleEditMode(type) {
+        if (type !== 'enhanced') return; // 只有增强代码支持编辑
+        
+        const displayElement = document.getElementById('enhancedCodeDisplay');
+        const editorElement = document.getElementById('codeEditor');
+        const button = event.target;
+        
+        if (displayElement && editorElement) {
+            if (displayElement.style.display === 'none') {
+                // 切换回查看模式
+                displayElement.style.display = 'block';
+                editorElement.style.display = 'none';
+                button.textContent = '✏️ 编辑';
+                
+                // 更新显示内容
+                const codeContent = document.getElementById('enhancedCodeContent');
+                if (codeContent) {
+                    codeContent.textContent = editorElement.value;
+                    // 重新应用语法高亮
+                    if (typeof hljs !== 'undefined') {
+                        hljs.highlightElement(codeContent);
+                    }
+                }
+            } else {
+                // 切换到编辑模式
+                displayElement.style.display = 'none';
+                editorElement.style.display = 'block';
+                button.textContent = '👁️ 查看';
+                editorElement.focus();
+            }
         }
     }
     
@@ -7112,6 +7842,76 @@ def optimize_data_processing():
             console.error('复制失败:', err);
             showError('复制失败，请手动复制', 3000);
         });
+    }
+
+    /**
+     * 显示CREATE TABLE语句
+     */
+    function showCreateTableSQL(sql) {
+        // 解码转义的文本
+        const textarea = document.createElement('textarea');
+        textarea.innerHTML = sql;
+        const decodedSQL = textarea.value;
+        
+        // 创建模态框显示SQL
+        const modal = document.createElement('div');
+        modal.className = 'sql-modal';
+        modal.innerHTML = `
+            <div class="sql-modal-content">
+                <div class="sql-modal-header">
+                    <h3>📝 CREATE TABLE 语句</h3>
+                    <button class="modal-close" onclick="this.closest('.sql-modal').remove()">✕</button>
+                </div>
+                <div class="sql-modal-body">
+                    <pre><code class="language-sql">${escapeHtml(decodedSQL)}</code></pre>
+                </div>
+                <div class="sql-modal-footer">
+                    <button onclick="copyToClipboard('${escapeHtml(decodedSQL).replace(/'/g, "\\'")}')">📋 复制</button>
+                    <button onclick="this.closest('.sql-modal').remove()">关闭</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        
+        // 应用语法高亮
+        if (typeof Prism !== 'undefined') {
+            Prism.highlightAllUnder(modal);
+        }
+    }
+
+    /**
+     * 显示ALTER TABLE语句
+     */
+    function showAlterTableSQL(sql) {
+        // 解码转义的文本
+        const textarea = document.createElement('textarea');
+        textarea.innerHTML = sql;
+        const decodedSQL = textarea.value;
+        
+        // 创建模态框显示SQL
+        const modal = document.createElement('div');
+        modal.className = 'sql-modal';
+        modal.innerHTML = `
+            <div class="sql-modal-content">
+                <div class="sql-modal-header">
+                    <h3>🔧 ALTER TABLE 语句</h3>
+                    <button class="modal-close" onclick="this.closest('.sql-modal').remove()">✕</button>
+                </div>
+                <div class="sql-modal-body">
+                    <pre><code class="language-sql">${escapeHtml(decodedSQL)}</code></pre>
+                </div>
+                <div class="sql-modal-footer">
+                    <button onclick="copyToClipboard('${escapeHtml(decodedSQL).replace(/'/g, "\\'")}')">📋 复制</button>
+                    <button onclick="this.closest('.sql-modal').remove()">关闭</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        
+        // 应用语法高亮
+        if (typeof Prism !== 'undefined') {
+            Prism.highlightAllUnder(modal);
+        }
     }
 
     // ===== SocketIO管理 =====
@@ -7598,12 +8398,15 @@ def optimize_data_processing():
 
         // 通知系统初始化完成（已移除系统准备就绪提示）
 
-        // 定期清理消息去重记录
+        // 定期清理消息去重记录和消息管理器
         setInterval(() => {
             if (processedMessages.size > 1000) {
                 processedMessages.clear();
                 console.log('🧹 清理消息去重记录');
             }
+            
+            // 清理消息管理器中的过期消息
+            messageManager.cleanupOldMessages();
         }, 300000);
 
         // 定期清理Agent注册表（保留最近的消息）

@@ -8,7 +8,8 @@ from pydantic import BaseModel, Field
 
 class FieldDefinition(BaseModel):
     """字段定义"""
-    physical_name: str = Field(description="字段的物理名称，如：invoice_doc_no")
+    source_name: str = Field(description="来自底表的源字段名称，如：invoice_doc_no")
+    physical_name: Optional[str] = Field(description="标准化后的物理字段名称，通过属性名称生成", default="")
     attribute_name: str = Field(description="字段的属性名称用于描述物理字段名称，如：Invoice Document Number, 如果用户没有明确指明，置空即可")
 
 
@@ -47,12 +48,12 @@ class ModelEnhanceRequest(BaseModel):
             else:
                 # 检查每个字段的完整性
                 for i, field in enumerate(self.fields):
-                    if not field.physical_name.strip():
-                        missing_info.append(f"第{i + 1}个字段的物理名称（请提供字段的英文名称）")
+                    if not field.source_name.strip():
+                        missing_info.append(f"第{i + 1}个字段的源字段名称（请提供来自底表的字段名称）")
                     if not field.attribute_name.strip():
-                        # 如果有物理名称，在提示中包含它
-                        if field.physical_name.strip():
-                            missing_info.append(f"字段 '{field.physical_name}' 的属性名称（英文描述）")
+                        # 如果有源字段名称，在提示中包含它
+                        if field.source_name.strip():
+                            missing_info.append(f"字段 '{field.source_name}' 的属性名称（英文描述）")
                         else:
                             missing_info.append(f"第{i + 1}个字段的属性名称")
 

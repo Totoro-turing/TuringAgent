@@ -80,7 +80,7 @@ class EDWAgentManager:
 
 请仔细分析用户输入，提取以下信息：
 1. 需要增强的表名（必须包含schema，如：dwd_fi.fi_invoice_item）
-2. 具体的增强逻辑描述
+2. 具体的增强逻辑描述，请务必提取完整，比如取哪些字段，做哪些加工，新增字段位置等
 3. 增强类型（添加字段、修改逻辑、优化查询等）
 4. 字段信息：如果是添加字段，请提取所有字段到fields列表中
 5. 代码分支名称（如：main, dev, feature/xxx）
@@ -89,8 +89,9 @@ class EDWAgentManager:
 - 如果从用户的输入中提取不到相关信息，请直接以空字符串填充!!!
 - 如果用户提到"增加字段"、"新增字段"、"添加字段"等，必须将每个字段的信息提取到fields列表中
 - 每个字段必须包含：
-  - physical_name: 物理名称（下划线连接的小写英文，如：invoice_doc_no）
-  - attribute_name: 属性名称，即对物理名称的描述（首字母大写的英文描述，如：Invoice Document Number)，如果用户没有明确提供请置空
+  - source_name: 源字段名称（来自底表的字段名，下划线连接的小写英文，如：invoice_doc_no）
+  - physical_name: 留空字符串（这个字段会在后续标准化步骤中生成）
+  - attribute_name: 属性名称，即字段的业务含义描述（首字母大写的英文描述，如：Invoice Document Number)，如果用户没有明确提供请置空
 - 分支名称是必需的，用于确定从哪个代码分支获取源代码
 
 示例：
@@ -99,8 +100,8 @@ class EDWAgentManager:
 - table_name: "表名"
 - branch_name: "feature/add-invoice"
 - fields: [
-    {{"physical_name": "invoice_doc_no", "attribute_name": "Invoice Document Number"}},
-    {{"physical_name": "customer_type", "attribute_name": "Customer Type"}}
+    {{"source_name": "invoice_doc_no", "physical_name": "", "attribute_name": "Invoice Document Number"}},
+    {{"source_name": "customer_type", "physical_name": "", "attribute_name": "Customer Type"}}
   ]
 
 {self.parser.get_format_instructions()}

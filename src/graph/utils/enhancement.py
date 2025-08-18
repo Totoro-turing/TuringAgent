@@ -79,50 +79,6 @@ async def execute_code_enhancement_task(enhancement_mode: str, **kwargs) -> dict
         if enhancement_result.get("enhanced_code"):
             logger.info(f"代码增强成功 ({enhancement_mode}): {table_name}")
             
-            # 🎯 发送增强代码到前端显示（适用于所有增强模式）
-            if state:
-                session_id = state.get("session_id", "unknown")
-                from src.server.socket_manager import get_session_socket
-                from datetime import datetime
-                
-                socket_queue = get_session_socket(session_id)
-                
-                if socket_queue:
-                    try:
-                        # 获取额外信息
-                        fields = state.get("fields", kwargs.get("fields", []))
-                        fields_count = len(fields) if fields else 0
-                        enhancement_type = state.get("enhancement_type", "")
-                        model_name = state.get("model_attribute_name", "")
-                        code_path = kwargs.get("code_path", state.get("code_path", ""))
-                        adb_path = kwargs.get("adb_code_path", state.get("adb_code_path", ""))
-                        
-                        socket_queue.send_message(
-                            session_id,
-                            "enhanced_code",
-                            {
-                                "type": "enhanced_code",
-                                "content": enhancement_result.get("enhanced_code"),
-                                "table_name": table_name,
-                                "create_table_sql": enhancement_result.get("new_table_ddl"),
-                                "alter_table_sql": enhancement_result.get("alter_statements"),
-                                "fields_count": fields_count,
-                                "enhancement_type": enhancement_type,
-                                "enhancement_mode": enhancement_mode,  # 标记是初始增强还是微调
-                                "model_name": model_name,
-                                "file_path": code_path,
-                                "adb_path": adb_path,
-                                "optimization_summary": enhancement_result.get("optimization_summary", ""),
-                                "timestamp": datetime.now().isoformat()
-                            }
-                        )
-                        logger.info(f"✅ Socket发送增强代码成功: {table_name} (模式: {enhancement_mode}, 长度: {len(enhancement_result.get('enhanced_code', ''))} 字符)")
-                    except Exception as e:
-                        logger.warning(f"Socket发送增强代码失败: {e}")
-                else:
-                    if not socket_queue:
-                        logger.debug(f"Socket队列不存在: {session_id}")
-            
             return {
                 "success": True,
                 "enhanced_code": enhancement_result.get("enhanced_code"),
@@ -167,14 +123,23 @@ def build_initial_enhancement_prompt(table_name: str, source_code: str, adb_code
     
     # 构造字段信息字符串
     fields_info = []
+    source_names = []  # 收集源字段名用于查询
+    source_names_lower = []  # 收集小写的源字段名用于大小写不敏感查询
     for field in fields:
         if isinstance(field, dict):
-            physical_name = field['physical_name']
-            attribute_name = field['attribute_name']
+            source_name = field.get('source_name', '')
+            physical_name = field.get('physical_name', '')
+            attribute_name = field.get('attribute_name', '')
         else:
-            physical_name = field.physical_name
-            attribute_name = field.attribute_name
-        fields_info.append(f"{physical_name} ({attribute_name})")
+            source_name = getattr(field, 'source_name', '')
+            physical_name = getattr(field, 'physical_name', '')
+            attribute_name = getattr(field, 'attribute_name', '')
+        
+        # 显示格式：标准化字段名 (属性描述) <- 源字段名
+        fields_info.append(f"{physical_name} ({attribute_name}) <- 源字段: {source_name}")
+        if source_name:
+            source_names.append(f"'{source_name}'")
+            source_names_lower.append(f"'{source_name.lower()}'")
     
     return f"""你是一个Databricks代码增强专家，负责为数据模型添加新字段。
 
@@ -191,9 +156,18 @@ def build_initial_enhancement_prompt(table_name: str, source_code: str, adb_code
 ```
 
 **执行步骤**:
-1.  使用execute_sql工具查询目标表结构: `DESCRIBE {table_name}`
-2. 分析源代码中的底表，查询底表结构结合用户逻辑来推断新字段的数据类型
-3. 基于原始代码生成增强版本，确保新字段逻辑正确
+1. 查询源字段在底表的数据类型，结合用户逻辑来推断新字段的数据类型
+    源字段列表：{', '.join(source_names) if source_names else '无'}
+    你可以使用如下类似sql查询（请根据实际底表调整table_schema和table_name）：
+         SELECT column_name, full_data_type 
+         FROM `system`.information_schema.columns 
+         WHERE table_schema = '相应的schema' 
+         AND table_name = '相应的底表名' 
+         AND LOWER(column_name) IN ({', '.join(source_names_lower) if source_names_lower else "''"})
+2. 获取当前表建表语句
+    你可以使用如下类似sql查询：
+         SHOW CREATE TABLE {table_name};
+3. 基于原始代码结合用户逻辑生成增强版本，使用标准化后的physical_name作为新字段名
 4. 生成完整的CREATE TABLE和ALTER TABLE语句
 
 **输出要求**: 严格按JSON格式返回

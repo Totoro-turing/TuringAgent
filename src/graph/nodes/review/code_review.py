@@ -5,7 +5,6 @@
 """
 
 import logging
-import asyncio
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 from langchain.schema.messages import HumanMessage, AIMessage
@@ -97,7 +96,7 @@ def code_review_node(state: EDWState) -> dict:
         }
 
 
-def code_regenerate_node(state: EDWState) -> dict:
+async def code_regenerate_node(state: EDWState) -> dict:
     """
     代码重新生成节点
     根据review反馈重新生成改进的代码
@@ -127,10 +126,10 @@ def code_regenerate_node(state: EDWState) -> dict:
             }
         )
         
-        # 异步执行代码重新生成
+        # 直接await异步执行代码重新生成
         from src.graph.utils.enhancement import execute_code_enhancement_task
         
-        regeneration_result = asyncio.run(execute_code_enhancement_task(
+        regeneration_result = await execute_code_enhancement_task(
             enhancement_mode="review_improvement",
             current_code=current_code,
             improvement_prompt=improvement_prompt,
@@ -142,11 +141,44 @@ def code_regenerate_node(state: EDWState) -> dict:
             code_path=code_path,
             user_id=user_id,
             review_feedback=review_feedback,
-            review_suggestions=review_suggestions
-        ))
+            review_suggestions=review_suggestions,
+            state=state  # 传递state以支持Socket发送
+        )
         
         if regeneration_result.get("success"):
             logger.info(f"代码重新生成成功 - 表: {table_name}")
+            
+            # 🎯 发送重新生成的代码到前端显示
+            session_id = state.get("session_id", "unknown")
+            from src.server.socket_manager import get_session_socket
+            from datetime import datetime
+            
+            socket_queue = get_session_socket(session_id)
+            if socket_queue:
+                try:
+                    socket_queue.send_message(
+                        session_id,
+                        "enhanced_code",
+                        {
+                            "type": "enhanced_code",
+                            "content": regeneration_result.get("enhanced_code"),
+                            "table_name": table_name,
+                            "create_table_sql": regeneration_result.get("new_table_ddl", state.get("create_table_sql")),
+                            "alter_table_sql": regeneration_result.get("alter_statements", state.get("alter_table_sql")),
+                            "fields_count": len(fields) if fields else 0,
+                            "enhancement_type": state.get("enhancement_type", ""),
+                            "enhancement_mode": "review_improvement",  # 标记为review改进模式
+                            "model_name": state.get("model_attribute_name", ""),
+                            "file_path": code_path,
+                            "adb_path": adb_code_path,
+                            "optimization_summary": regeneration_result.get("optimization_summary", ""),
+                            "review_round": state.get("review_round", 1),
+                            "timestamp": datetime.now().isoformat()
+                        }
+                    )
+                    logger.info(f"✅ Socket发送review改进代码成功: {table_name}")
+                except Exception as e:
+                    logger.warning(f"Socket发送review改进代码失败: {e}")
             
             return {
                 "enhance_code": regeneration_result.get("enhanced_code"),

@@ -210,26 +210,28 @@ async def validate_fields_against_base_tables(fields: list, base_tables: list, s
     for field in fields:
         # 兼容字典和对象访问
         if isinstance(field, dict):
+            source_name = field.get("source_name", "")
             physical_name = field.get("physical_name", "")
         else:
+            source_name = getattr(field, "source_name", "")
             physical_name = getattr(field, "physical_name", "")
         
-        # 检查是否在底表中存在相似字段
-        similar_fields = find_similar_fields(physical_name, all_base_fields)
+        # 使用source_name检查是否在底表中存在相似字段
+        similar_fields = find_similar_fields(source_name, all_base_fields)
         
         if not similar_fields:
             validation_result["valid"] = False
-            validation_result["invalid_fields"].append(physical_name)
+            validation_result["invalid_fields"].append(source_name)  # 记录源字段名
             # 提供基于字段名称模式的建议
-            pattern_suggestions = _generate_pattern_suggestions(physical_name, all_base_fields)
+            pattern_suggestions = _generate_pattern_suggestions(source_name, all_base_fields)
             if pattern_suggestions:
-                validation_result["suggestions"][physical_name] = pattern_suggestions
-            logger.warning(f"字段 {physical_name} 在底表中未找到相似字段")
+                validation_result["suggestions"][source_name] = pattern_suggestions
+            logger.warning(f"字段 {source_name} 在底表中未找到相似字段")
         else:
             # 如果相似度不够高，也提供建议
             if similar_fields[0]["similarity"] < 0.8:
-                validation_result["suggestions"][physical_name] = similar_fields
-                logger.info(f"字段 {physical_name} 找到相似字段: {[f['field_name'] for f in similar_fields[:3]]}")
+                validation_result["suggestions"][source_name] = similar_fields
+                logger.info(f"字段 {source_name} 找到相似字段: {[f['field_name'] for f in similar_fields[:3]]}")
     
     return validation_result
 
