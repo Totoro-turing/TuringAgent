@@ -37,6 +37,7 @@ class EDWAgentManager:
         try:
             # 初始化LLM
             self.llm = LLMFactory.create_llm()
+            self.reasoner = LLMFactory.create_reasoner_llm()
             logger.info("LLM初始化成功")
             
             # 创建输出解析器

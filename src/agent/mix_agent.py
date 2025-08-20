@@ -18,7 +18,17 @@ class LLMFactory:
             base_url=os.getenv('DEEPSEEK_BASE_URL'),
             max_tokens=8000
         )
+    @staticmethod
+    def create_reasoner_llm() -> ChatOpenAI:
+        return ChatOpenAI(
+            temperature=0,
+            model="deepseek-reasoner",
+            api_key=os.getenv('DEEPSEEK_API_KEY'),
+            base_url=os.getenv('DEEPSEEK_BASE_URL'),
+            max_tokens=64000
+        )
 
 
 # langgraph 做法
 llm = LLMFactory.create_llm()
+reasoner_llm = LLMFactory.create_reasoner_llm()

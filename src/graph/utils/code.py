@@ -175,6 +175,101 @@ def detect_code_language(code_path: str, source_code: str = "") -> str:
     return 'PYTHON'
 
 
+def is_json_complete(content: str) -> tuple[bool, str]:
+    """
+    检测JSON响应是否完整（简化版）
+    返回: (是否完整, 简单描述)
+    """
+    try:
+        # 尝试提取JSON内容
+        json_content = content.strip()
+        
+        # 如果是markdown代码块格式
+        if "```json" in json_content:
+            # 检查是否有结束标记
+            if not json_content.rstrip().endswith("```"):
+                return False, "不完整"
+            
+            # 提取代码块内容
+            import re
+            json_match = re.search(r'```json\n(.*?)(?:\n```|$)', json_content, re.DOTALL)
+            if json_match:
+                json_content = json_match.group(1)
+            else:
+                return False, "不完整"
+        
+        # 尝试解析JSON
+        json.loads(json_content)
+        return True, ""
+        
+    except json.JSONDecodeError:
+        # 简单返回不完整，不分析具体原因
+        return False, "不完整"
+    
+    except Exception:
+        return False, "不完整"
+
+
+def attempt_fix_truncated_json(content: str) -> str:
+    """
+    尝试修复被截断的JSON
+    """
+    try:
+        # 移除可能的markdown标记
+        if "```json" in content:
+            import re
+            json_match = re.search(r'```json\n(.*?)(?:\n```|$)', content, re.DOTALL)
+            if json_match:
+                content = json_match.group(1)
+        
+        content = content.strip()
+        
+        # 如果内容为空，返回空对象
+        if not content:
+            return "{}"
+        
+        # 计算需要补充的括号
+        open_braces = content.count('{')
+        close_braces = content.count('}')
+        open_brackets = content.count('[')
+        close_brackets = content.count(']')
+        
+        # 检查最后一个字符，决定如何补充
+        last_char = content[-1] if content else ''
+        
+        # 如果最后是未完成的字符串，尝试闭合它
+        if content.count('"') % 2 != 0:
+            # 奇数个引号，需要补充一个
+            content += '"'
+            # 检查是否需要补充逗号或括号
+            if open_braces > close_braces:
+                content += '}'
+        
+        # 如果最后是逗号，可能需要添加一个空值然后闭合
+        if last_char == ',':
+            content = content[:-1]  # 移除逗号
+        
+        # 如果最后是冒号，添加空字符串值
+        if last_char == ':':
+            content += '""'
+        
+        # 补充缺失的括号
+        content += ']' * (open_brackets - close_brackets)
+        content += '}' * (open_braces - close_braces)
+        
+        # 验证修复后的JSON
+        try:
+            json.loads(content)
+            return content
+        except:
+            # 修复失败，返回原始内容
+            return content
+            
+    except Exception as e:
+        logger.warning(f"修复JSON失败: {e}")
+        return content
+
+
 def parse_agent_response(content: str) -> dict:
     """解析智能体响应，提取JSON结果"""
     

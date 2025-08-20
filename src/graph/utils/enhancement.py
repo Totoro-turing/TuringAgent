@@ -66,66 +66,15 @@ async def execute_code_enhancement_task(enhancement_mode: str, **kwargs) -> dict
             enhanced_monitoring=True
         )
         
-        # 调用全局智能体执行增强任务（支持续写机制）
-        from langchain.schema.messages import AIMessage
-        from src.graph.utils.code import is_json_complete, attempt_fix_truncated_json
-        
-        max_continuations = 3  # 最多续写3次
-        full_response = ""
-        messages_history = [HumanMessage(task_message)]
-        
-        for attempt in range(max_continuations + 1):
-            # 调用agent
-            result = await enhancement_agent.ainvoke(
-                {"messages": messages_history},
-                config,
-            )
-            
-            # 获取本次响应内容
-            current_response = result["messages"][-1].content
-            
-            # 如果是第一次响应，直接使用；否则拼接
-            if attempt == 0:
-                full_response = current_response
-            else:
-                # 续写时只拼接新内容（去除可能的重复部分）
-                # 检查是否有重复的开头
-                if current_response.startswith("{") or current_response.startswith("```"):
-                    # 如果续写内容又从头开始，说明模型没理解续写指令
-                    logger.warning(f"续写第{attempt}次时模型重新开始生成，尝试提取有用部分")
-                    # 尝试提取JSON部分并合并
-                    if "enhanced_code" in current_response:
-                        # 可能是完整重新生成，使用新的
-                        full_response = current_response
-                    else:
-                        # 否则尝试拼接
-                        full_response += current_response
-                else:
-                    # 正常续写，直接拼接
-                    full_response += current_response
-            
-            # 检测响应是否完整
-            is_complete, incompleteness_reason = is_json_complete(full_response)
-            
-            if is_complete:
-                logger.info(f"响应完整，共进行了 {attempt + 1} 次调用")
-                break
-            elif attempt < max_continuations:
-                # 构建续写提示
-                logger.info(f"响应不完整，尝试续写第 {attempt + 1} 次")
-                
-                # 统一的续写提示
-                continuation_prompt = "输出不完整，请基于以上已经输出的内容，接着输出json里的内容，不要重复已经输出过的内容， 且输出格式不用保持json格式，直接输出代码即可。请继续输出完整的增强代码和DDL语句。"
-                # 添加到消息历史
-                messages_history = [HumanMessage(content=continuation_prompt)]
-            else:
-                # 达到最大续写次数，尝试修复
-                logger.warning(f"达到最大续写次数({max_continuations})，尝试修复截断的JSON")
-                full_response = attempt_fix_truncated_json(full_response)
-                break
+        # 调用全局智能体执行增强任务（异步调用以支持MCP工具）
+        result = await enhancement_agent.ainvoke(
+            {"messages": [HumanMessage(task_message)]},
+            config,
+        )
         
         # 解析智能体的响应
-        enhancement_result = parse_agent_response(full_response)
+        response_content = result["messages"][-1].content
+        enhancement_result = parse_agent_response(response_content)
         
         if enhancement_result.get("enhanced_code"):
             logger.info(f"代码增强成功 ({enhancement_mode}): {table_name}")
