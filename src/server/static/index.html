@@ -551,6 +551,8 @@
         /* ===== 工作区模式下的用户消息优化 ===== */
 
         .chat-container.workspace-mode .message.user {
+            display: flex;
+            flex-direction: row;
             justify-content: flex-end;
             margin-bottom: 0; /* 使用统一的message margin-bottom */
             padding: 0;
@@ -562,7 +564,7 @@
             display: none;
         }
 
-        .chat-container.workspace-mode .message.user .user-message {
+        .chat-container.workspace-mode .message.user .message-content.user-message {
             background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
             color: white;
             padding: 14px 18px;
@@ -580,7 +582,7 @@
         }
 
         /* 用户消息右侧小尾巴 */
-        .chat-container.workspace-mode .message.user .user-message::after {
+        .chat-container.workspace-mode .message.user .message-content.user-message::after {
             content: '';
             position: absolute;
             top: 50%;
@@ -596,7 +598,7 @@
 
         /* 移除原有的before，用于边框高亮 */
 
-        .chat-container.workspace-mode .message.user .user-message:hover {
+        .chat-container.workspace-mode .message.user .message-content.user-message:hover {
             transform: translateY(-2px) scale(1.01);
             box-shadow: 0 10px 30px rgba(79, 70, 229, 0.5),
                         0 0 0 1px rgba(79, 70, 229, 0.6),
@@ -604,7 +606,7 @@
         }
 
         /* 工作区模式用户消息边框高亮（改为before避免与小尾巴冲突） */
-        .chat-container.workspace-mode .message.user .user-message:hover::before {
+        .chat-container.workspace-mode .message.user .message-content.user-message:hover::before {
             content: '';
             position: absolute;
             inset: -2px;
@@ -633,7 +635,7 @@
         }
 
         /* 工作区模式下的代码样式 */
-        .chat-container.workspace-mode .message.user .user-message code {
+        .chat-container.workspace-mode .message.user .message-content.user-message code {
             background: rgba(255, 255, 255, 0.2);
             color: #ddd6fe;
             padding: 2px 5px;
@@ -1133,12 +1135,15 @@
             padding: 0 0 8px 0;
             border-bottom: 1px solid rgba(124, 58, 237, 0.2);
             margin-bottom: 12px;
+            gap: 12px;
         }
 
         .thinking-status-text {
             font-weight: 600;
             color: #a855f7;
             font-size: 14px;
+            flex: 1;
+            margin-right: 12px;
         }
 
         .thinking-detail-text {
@@ -1146,6 +1151,54 @@
             color: #e2e8f0;
             line-height: 1.5;
             min-height: 20px;
+            margin-top: 8px;
+            padding-left: 4px;
+            position: relative;  /* 为tooltip定位提供参考 */
+            max-height: 200px;   /* 限制高度 */
+            overflow-y: auto;    /* 内容过多时显示滚动条 */
+        }
+
+        /* 工具参数悬停提示框样式 */
+        .tool-params-tooltip {
+            position: absolute !important;
+            bottom: 100% !important;
+            left: 0;
+            right: 0;
+            background: rgba(30, 30, 30, 0.98) !important;
+            border: 1px solid rgba(124, 58, 237, 0.5) !important;
+            border-radius: 8px !important;
+            padding: 12px !important;
+            margin-bottom: 4px !important;
+            display: none;
+            z-index: 1000 !important;
+            max-height: 300px !important;
+            overflow-y: auto !important;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+            backdrop-filter: blur(10px) !important;
+        }
+        
+        .thinking-step-entry {
+            display: flex;
+            align-items: center;
+            padding: 4px 0;
+            font-size: 13px;
+            color: #e2e8f0;
+            opacity: 0.9;
+            position: relative;
+            cursor: default;
+            transition: all 0.2s ease;
+        }
+        
+        .thinking-step-entry:hover {
+            opacity: 1;
+            background: rgba(124, 58, 237, 0.1);
+            border-radius: 4px;
+            padding-left: 4px;
+            padding-right: 4px;
+        }
+        
+        .thinking-step-entry:hover .tool-params-tooltip {
+            display: block !important;
         }
 
         /* 响应式设计 */
@@ -3244,27 +3297,19 @@
             <div class="suggestions-grid">
                 <div class="suggestion-item" onclick="applySuggestion(this)">
                     <span class="suggestion-icon">📊</span>
-                    <span class="suggestion-text">帮我分析销售数据表的字段结构</span>
+                    <span class="suggestion-text">增强表dwd_fi.fi_invoice_item</span>
                 </div>
                 <div class="suggestion-item" onclick="applySuggestion(this)">
                     <span class="suggestion-icon">🔧</span>
-                    <span class="suggestion-text">为用户表添加新的业务字段</span>
+                    <span class="suggestion-text">查询一下dwd_fi.fi_invoice_item样例数据</span>
                 </div>
                 <div class="suggestion-item" onclick="applySuggestion(this)">
                     <span class="suggestion-icon">📈</span>
-                    <span class="suggestion-text">优化财务报表的查询性能</span>
+                    <span class="suggestion-text">标准化属性名称：Invoice Document Number</span>
                 </div>
                 <div class="suggestion-item" onclick="applySuggestion(this)">
                     <span class="suggestion-icon">🎯</span>
-                    <span class="suggestion-text">创建客户画像分析模型</span>
-                </div>
-                <div class="suggestion-item" onclick="applySuggestion(this)">
-                    <span class="suggestion-icon">💰</span>
-                    <span class="suggestion-text">生成订单金额统计代码</span>
-                </div>
-                <div class="suggestion-item" onclick="applySuggestion(this)">
-                    <span class="suggestion-icon">🔍</span>
-                    <span class="suggestion-text">帮我检查数据质量问题</span>
+                    <span class="suggestion-text">什么是羊群效应</span>
                 </div>
             </div>
         </div>
@@ -3597,7 +3642,7 @@
                 timeout: setTimeout(() => {
                     console.warn('⏰ 思考框超时，自动隐藏');
                     this.endThinking();
-                }, 60000)  // 60秒超时
+                }, 300000)  // 5分钟超时
             };
             
             // 创建思考框DOM
@@ -3607,8 +3652,8 @@
             thinkingDiv.className = 'thinking-steps-content';
             thinkingDiv.innerHTML = `
                 <div class="thinking-status-line">
-                    <div class="thinking-spinner"></div>
                     <div class="thinking-status-text">AI正在思考...</div>
+                    <div class="thinking-spinner"></div>
                 </div>
                 <div class="thinking-detail-text"></div>
             `;
@@ -3667,7 +3712,119 @@
         }
         
         /**
-         * 更新思考框进度
+         * 更新思考框进度（带悬停数据） - 工具执行专用
+         */
+        updateThinkingProgressWithHover(stepId, status, message, hoverData) {
+            if (!this.thinkingState.visible || !this.thinkingState.messageId) {
+                console.warn('⚠️ 思考框不可见，无法更新进度');
+                return;
+            }
+            
+            const thinkingBox = document.getElementById(this.thinkingState.messageId);
+            if (!thinkingBox) return;
+            
+            const statusText = thinkingBox.querySelector('.thinking-status-text');
+            const detailText = thinkingBox.querySelector('.thinking-detail-text');
+            
+            // 更新主状态文本
+            if (statusText) {
+                statusText.textContent = message || 'AI正在思考...';
+            }
+            
+            // 更新详细信息 - 添加带悬停的条目
+            if (detailText) {
+                const timestamp = new Date().toLocaleTimeString('zh-CN');
+                const statusIcon = this.getStatusIcon(status);
+                
+                // 创建新的步骤条目
+                const stepEntry = document.createElement('div');
+                stepEntry.className = `thinking-step-entry status-${status}`;
+                stepEntry.style.cssText = `
+                    display: flex;
+                    align-items: center;
+                    padding: 4px 0;
+                    font-size: 13px;
+                    color: #e2e8f0;
+                    opacity: 0.9;
+                    position: relative;
+                    cursor: pointer;
+                `;
+                
+                // 基础内容
+                stepEntry.innerHTML = `
+                    <span class="step-time" style="color: #94a3b8; margin-right: 8px;">[${timestamp}]</span>
+                    <span class="step-icon" style="margin-right: 6px;">${statusIcon}</span>
+                    <span class="step-text">${message || stepId}</span>
+                    ${hoverData ? '<span style="margin-left: 4px; color: #a855f7; font-size: 11px;">[参数]</span>' : ''}
+                `;
+                
+                // 如果有悬停数据，添加悬停显示逻辑
+                if (hoverData) {
+                    const tooltipDiv = document.createElement('div');
+                    tooltipDiv.className = 'tool-params-tooltip';
+                    tooltipDiv.style.cssText = `
+                        position: absolute;
+                        bottom: 100%;
+                        left: 0;
+                        right: 0;
+                        background: rgba(30, 30, 30, 0.98);
+                        border: 1px solid rgba(124, 58, 237, 0.5);
+                        border-radius: 8px;
+                        padding: 12px;
+                        margin-bottom: 4px;
+                        display: none;
+                        z-index: 1000;
+                        max-height: 300px;
+                        overflow-y: auto;
+                        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+                        backdrop-filter: blur(10px);
+                    `;
+                    
+                    // 格式化参数显示
+                    let paramsHtml = '<div style="font-size: 12px; color: #e2e8f0;">';
+                    paramsHtml += '<div style="margin-bottom: 8px; color: #a855f7; font-weight: 600;">工具参数：</div>';
+                    
+                    if (typeof hoverData === 'object') {
+                        for (const [key, value] of Object.entries(hoverData)) {
+                            const displayValue = typeof value === 'string' && value.length > 200 
+                                ? value.substring(0, 200) + '...' 
+                                : JSON.stringify(value, null, 2);
+                            paramsHtml += `
+                                <div style="margin-bottom: 6px;">
+                                    <span style="color: #60a5fa;">${key}:</span>
+                                    <pre style="margin: 2px 0; padding: 4px; background: rgba(0,0,0,0.3); border-radius: 4px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; font-size: 11px;">${displayValue}</pre>
+                                </div>
+                            `;
+                        }
+                    } else {
+                        paramsHtml += `<pre style="white-space: pre-wrap; word-break: break-all;">${hoverData}</pre>`;
+                    }
+                    paramsHtml += '</div>';
+                    
+                    tooltipDiv.innerHTML = paramsHtml;
+                    stepEntry.appendChild(tooltipDiv);
+                    
+                    // CSS :hover伪类会自动处理显示/隐藏，不需要JavaScript事件
+                    // 添加一个标记class以便CSS识别带参数的条目
+                    stepEntry.classList.add('has-tooltip');
+                }
+                
+                // 添加到详细信息区域
+                detailText.appendChild(stepEntry);
+                
+                // 限制显示的步骤数量
+                const entries = detailText.querySelectorAll('.thinking-step-entry');
+                if (entries.length > 5) {
+                    entries[0].remove();
+                }
+                
+                // 滚动到最新内容
+                detailText.scrollTop = detailText.scrollHeight;
+            }
+        }
+        
+        /**
+         * 更新思考框进度 - 增强版
          */
         updateThinkingProgress(stepId, status, message) {
             if (!this.thinkingState.visible || !this.thinkingState.messageId) {
@@ -3681,13 +3838,65 @@
             const statusText = thinkingBox.querySelector('.thinking-status-text');
             const detailText = thinkingBox.querySelector('.thinking-detail-text');
             
+            // 更新主状态文本
             if (statusText) {
                 statusText.textContent = message || 'AI正在思考...';
             }
             
-            if (detailText && status !== 'completed') {
-                detailText.textContent = `${stepId}: ${status}`;
+            // 更新详细信息 - 添加而不是替换
+            if (detailText) {
+                const timestamp = new Date().toLocaleTimeString('zh-CN');
+                const statusIcon = this.getStatusIcon(status);
+                
+                // 创建新的步骤条目
+                const stepEntry = document.createElement('div');
+                stepEntry.className = `thinking-step-entry status-${status}`;
+                stepEntry.style.cssText = `
+                    display: flex;
+                    align-items: center;
+                    padding: 4px 0;
+                    font-size: 13px;
+                    color: #e2e8f0;
+                    opacity: 0.9;
+                `;
+                stepEntry.innerHTML = `
+                    <span class="step-time" style="color: #94a3b8; margin-right: 8px;">[${timestamp}]</span>
+                    <span class="step-icon" style="margin-right: 6px;">${statusIcon}</span>
+                    <span class="step-text">${message || stepId}</span>
+                `;
+                
+                // 添加到详细信息区域
+                detailText.appendChild(stepEntry);
+                
+                // 限制显示的步骤数量
+                const entries = detailText.querySelectorAll('.thinking-step-entry');
+                if (entries.length > 5) {
+                    entries[0].remove();
+                }
+                
+                // 滚动到最新内容
+                detailText.scrollTop = detailText.scrollHeight;
             }
+        }
+        
+        /**
+         * 获取状态图标
+         */
+        getStatusIcon(status) {
+            const icons = {
+                'started': '🔄',
+                'processing': '⚙️',
+                'completed': '✅',
+                'failed': '❌',
+                'tool_call': '🔧',
+                'llm_invoke': '🤖',
+                'searching': '🔍',
+                'writing': '✏️',
+                'reading': '📖',
+                'validating': '✔️',
+                'generating': '🚀'
+            };
+            return icons[status] || 'ℹ️';
         }
         
         /**
@@ -4096,7 +4305,7 @@
             `<div class="message-timestamp">${new Date().toLocaleTimeString()}</div>` : '';
 
         return `
-            <div class="user-message">
+            <div class="message-content user-message">
                 ${content}
                 ${timestamp}
                 <div class="status-indicator sent">✓</div>
@@ -4451,6 +4660,8 @@
         const messageId = 'stream-msg-' + Date.now() + '-' + Math.random().toString(36).substr(2, 8);
         const messagesContainer = document.getElementById('chatMessages');
 
+        console.log('📝 创建流式消息容器，messageId:', messageId);
+
         if (!messagesContainer) {
             console.error('❌ 找不到消息容器');
             return null;
@@ -4481,13 +4692,30 @@
         }
 
         // 如果是空内容的AI消息，先隐藏直到有实际内容
+        let isEmptyAI = false;
         if (type === 'ai' && (!content || content.trim() === '')) {
             messageDiv.style.display = 'none';
             messageDiv.setAttribute('data-empty-ai', 'true');
+            isEmptyAI = true;
         }
 
         // 使用智能插入函数，确保思考框始终在底部
         insertMessageBeforeThinking(messageDiv, messagesContainer);
+        
+        // 如果不是空的AI消息，确保消息可见
+        if (!isEmptyAI) {
+            messageDiv.style.display = 'flex';
+            messageDiv.style.opacity = '1';
+        }
+        
+        // 验证stream-content元素
+        const verifyStreamContent = messageDiv.querySelector(`[data-stream-id="${messageId}"]`);
+        if (verifyStreamContent) {
+            console.log('✅ stream-content元素已创建');
+            verifyStreamContent.style.minHeight = '20px'; // 确保有最小高度
+        } else {
+            console.error('❌ stream-content元素未找到！');
+        }
 
         // 延迟滚动，确保不影响Agent消息
         requestAnimationFrame(() => {
@@ -4507,8 +4735,9 @@
             // 如果这是第一次添加内容到空的AI消息，显示它
             const messageDiv = streamContent.closest('.message');
             if (messageDiv && messageDiv.getAttribute('data-empty-ai') === 'true' && content.trim()) {
-                messageDiv.style.display = '';
+                messageDiv.style.display = 'flex';  // 使用flex而不是空字符串
                 messageDiv.removeAttribute('data-empty-ai');
+                console.log('📌 显示之前隐藏的AI消息');
             }
 
             // 确保工作区模式下的滚动
@@ -5129,7 +5358,8 @@
             timestamp: Date.now()
         });
 
-        messagesContainer.appendChild(messageDiv);
+        // 使用智能插入函数，确保思考框始终在底部
+        insertMessageBeforeThinking(messageDiv, messagesContainer);
 
         // 使用更平滑的滚动，避免跳跃
         requestAnimationFrame(() => {
@@ -5455,13 +5685,19 @@
                 console.log('⚠️ 注意：此时思考框不可见，等待workflow_start消息显示');
             }
 
-            // 创建隔离的AI消息容器
-            const aiMessageId = addStreamMessage('', 'ai');
-
-            if (!aiMessageId) {
-                console.error('❌ 无法创建AI消息容器');
-                return;
-            }
+            // 暂时不创建空的AI消息容器，等待实际内容到达
+            let aiMessageId = null;
+            
+            console.log('📝 等待实际内容到达后再创建AI消息容器');
+            
+            // 验证DOM元素是否存在
+            const createdElement = document.getElementById(aiMessageId);
+            const streamElement = document.querySelector(`[data-stream-id="${aiMessageId}"]`);
+            console.log('🔍 验证DOM元素:', {
+                byId: !!createdElement,
+                byStreamId: !!streamElement,
+                aiMessageId: aiMessageId
+            });
 
             // 标记流式状态
             const streamMessage = document.getElementById(aiMessageId);
@@ -5486,6 +5722,12 @@
 
             // 实时Markdown渲染函数
             function renderMarkdownRealtime(content, force = false) {
+                // 如果没有aiMessageId，说明还没有创建消息容器，直接返回
+                if (!aiMessageId) {
+                    console.log('⚠️ aiMessageId不存在，跳过渲染');
+                    return;
+                }
+                
                 const now = Date.now();
 
                 // 防抖：避免过于频繁的渲染
@@ -5502,7 +5744,21 @@
 
                 try {
                     const streamContent = document.querySelector(`[data-stream-id="${aiMessageId}"]`);
-                    if (!streamContent) return;
+                    if (!streamContent) {
+                        console.error(`❌ 找不到流式内容容器，aiMessageId: ${aiMessageId}`);
+                        // 尝试查找所有的流式内容容器
+                        const allStreamContents = document.querySelectorAll('[data-stream-id]');
+                        console.log('🔍 当前存在的流式容器:', allStreamContents.length, Array.from(allStreamContents).map(el => el.getAttribute('data-stream-id')));
+                        return;
+                    }
+                    
+                    // 确保父消息容器可见
+                    const messageDiv = streamContent.closest('.message');
+                    if (messageDiv && messageDiv.style.display === 'none') {
+                        messageDiv.style.display = 'flex';
+                        messageDiv.removeAttribute('data-empty-ai');
+                        console.log('📌 在渲染时显示之前隐藏的AI消息');
+                    }
 
                     // 检测是否应该启用markdown模式
                     if (!isMarkdownMode) {
@@ -5513,6 +5769,7 @@
                         // 尝试渲染Markdown
                         const processed = preprocessStreamContent(content);
                         const markdownContent = marked.parse(processed);
+                        console.log('🎨 设置Markdown内容，长度:', markdownContent.length);
                         streamContent.innerHTML = markdownContent;
 
                         // 立即处理代码块
@@ -5527,6 +5784,7 @@
                         }
                     } else {
                         // 纯文本模式
+                        console.log('📝 设置纯文本内容，长度:', content.length);
                         streamContent.textContent = content;
                     }
 
@@ -5603,38 +5861,52 @@
                         clearTimeout(renderTimeout);
                     }
 
-                    // 最终渲染 - 确保完整性
-                    try {
-                        // 检查是否是特殊JSON回复
-                        if (isModelEnhanceJsonResponse(fullResponse)) {
-                            console.log('🔍 检测到模型增强JSON回复，进行最终格式化');
-                            const enhanceResult = parseModelEnhanceResult(fullResponse);
-                            if (enhanceResult) {
-                                const formattedContent = formatModelEnhanceResponse(enhanceResult);
-                                finalizeStreamMessageWithContent(aiMessageId, formattedContent);
+                    // 最终渲染 - 确保完整性（只有在有内容和aiMessageId时才渲染）
+                    if (aiMessageId && fullResponse) {
+                        try {
+                            // 检查是否是特殊JSON回复
+                            if (isModelEnhanceJsonResponse(fullResponse)) {
+                                console.log('🔍 检测到模型增强JSON回复，进行最终格式化');
+                                const enhanceResult = parseModelEnhanceResult(fullResponse);
+                                if (enhanceResult) {
+                                    const formattedContent = formatModelEnhanceResponse(enhanceResult);
+                                    finalizeStreamMessageWithContent(aiMessageId, formattedContent);
+                                } else {
+                                    // 最后一次渲染完整内容
+                                    renderMarkdownRealtime(fullResponse, true);
+                                }
                             } else {
                                 // 最后一次渲染完整内容
                                 renderMarkdownRealtime(fullResponse, true);
                             }
-                        } else {
-                            // 最后一次渲染完整内容
-                            renderMarkdownRealtime(fullResponse, true);
+                        } catch (finalError) {
+                            console.error('❌ 最终渲染失败:', finalError);
+                            // 确保内容可见
+                            const streamContent = document.querySelector(`[data-stream-id="${aiMessageId}"]`);
+                            if (streamContent) {
+                                streamContent.textContent = fullResponse;
+                            }
                         }
-                    } catch (finalError) {
-                        console.error('❌ 最终渲染失败:', finalError);
-                        // 确保内容可见
-                        const streamContent = document.querySelector(`[data-stream-id="${aiMessageId}"]`);
-                        if (streamContent) {
-                            streamContent.textContent = fullResponse;
-                        }
+                    } else if (!fullResponse) {
+                        console.log('ℹ️ 没有收到任何响应内容，跳过渲染');
                     }
 
                     // 在stream响应完全结束时隐藏思考框（但不要在等待中断响应时隐藏）
-                    if (messageManager.isCurrentStreamThinking(currentSessionId) && !window.waitingForInterruptResponse) {
+                    console.log('🔍 检查是否需要隐藏思考框:', {
+                        currentSessionId: currentSessionId,
+                        thinkingState: messageManager.thinkingState,
+                        isCurrentStreamThinking: messageManager.isCurrentStreamThinking(currentSessionId),
+                        waitingForInterruptResponse: window.waitingForInterruptResponse
+                    });
+                    
+                    // 简化条件：只要思考框可见且不是在等待中断响应，就隐藏它
+                    if (messageManager.thinkingState.visible && !window.waitingForInterruptResponse) {
                         console.log('✅ Stream响应完成，现在隐藏思考框');
                         messageManager.endThinking();
                     } else if (window.waitingForInterruptResponse) {
                         console.log('💭 等待中断响应，保持思考框显示');
+                    } else if (!messageManager.thinkingState.visible) {
+                        console.log('ℹ️ 思考框已经隐藏');
                     }
 
                     // 检查是否有待处理的增强信息（当流式读取完成时）
@@ -5658,9 +5930,31 @@
 
                             if (data.type === 'content') {
                                 fullResponse += data.content; // 收集完整回复
+                                
+                                // 只在收到第一个实际内容时创建AI消息容器
+                                if (!aiMessageId && data.content && data.content.trim()) {
+                                    console.log('📝 收到第一个内容，现在创建AI消息容器');
+                                    aiMessageId = addStreamMessage('', 'ai');
+                                    if (!aiMessageId) {
+                                        console.error('❌ 无法创建AI消息容器');
+                                        return;
+                                    }
+                                    console.log('✅ AI消息容器创建成功，aiMessageId:', aiMessageId);
+                                }
+                                
+                                console.log(`📝 准备渲染内容，aiMessageId: ${aiMessageId}, 内容长度: ${fullResponse.length}`);
+                                
+                                // 收到第一个content就隐藏思考框
+                                if (fullResponse.length > 0 && messageManager.thinkingState.visible && !window.waitingForInterruptResponse) {
+                                    console.log('📝 收到AI回复内容，隐藏思考框');
+                                    messageManager.endThinking();
+                                }
 
-                                // 实时渲染当前累积的内容
-                                renderMarkdownRealtime(fullResponse);
+                                // 只有在aiMessageId存在时才渲染内容
+                                if (aiMessageId) {
+                                    // 实时渲染当前累积的内容
+                                    renderMarkdownRealtime(fullResponse);
+                                }
 
                             } else if (data.type === 'progress') {
                                 // EDW进度更新
@@ -5888,36 +6182,62 @@ ${improvements}
             case 'node_progress':
                 console.log('🔄 收到节点进度消息:', data.data);
                 const progressData = data.data;
-                updateNodeStatus(progressData.node, progressData.status, progressData.message);
+                
+                // 检查是否是工具执行消息（带悬停参数）
+                if (progressData.action === 'tool_executing' && progressData.show_on_hover) {
+                    console.log('🛠️ 检测到工具执行消息，使用悬停显示参数');
+                    const toolMessage = progressData.message;
+                    const toolInput = progressData.tool_input;
+                    updateNodeStatusWithHoverData(progressData.node, progressData.status, toolMessage, toolInput);
+                } else {
+                    // 普通节点进度消息
+                    updateNodeStatus(progressData.node, progressData.status, progressData.message);
+                }
                 break;
 
             case 'validation_progress':
                 console.log('✅ 收到验证进度消息:', data.data);
                 const validationData = data.data;
-                updateNodeStatus(validationData.node, validationData.status, validationData.message);
+                
+                // 检查是否是工具执行消息
+                if (validationData.extra && validationData.extra.action === 'tool_executing' && validationData.extra.show_on_hover) {
+                    // 处理工具执行消息，带悬停参数显示
+                    const toolMessage = validationData.message;
+                    const toolInput = validationData.extra.tool_input;
+                    updateNodeStatusWithHoverData(validationData.node, validationData.status, toolMessage, toolInput);
+                } else {
+                    // 普通消息
+                    updateNodeStatus(validationData.node, validationData.status, validationData.message);
+                }
                 break;
 
             case 'workflow_start':
                 console.log('🚀 收到工作流开始消息:', data.data);
-                // 工作流开始时确认思考框已显示（通常在handleStreamChat中已经显示）
-                if (!messageManager.thinkingState.visible) {
-                    console.log('🎬 工作流开始，补充显示思考框');
-                    messageManager.startThinking(data.session_id || currentSessionId);
-                }
+                // 工作流开始时只更新思考框内容，不重新创建（通常在handleStreamChat中已经创建）
                 if (data.data && data.data.message) {
-                    messageManager.updateThinkingProgress('workflow', 'started', data.data.message);
+                    // 如果思考框存在，更新内容；否则创建
+                    if (messageManager.thinkingState.visible) {
+                        messageManager.updateThinkingProgress('workflow', 'started', data.data.message);
+                    } else {
+                        console.log('🎬 工作流开始，创建思考框');
+                        messageManager.startThinking(data.session_id || currentSessionId);
+                        messageManager.updateThinkingProgress('workflow', 'started', data.data.message);
+                    }
                 }
                 break;
 
             case 'workflow_resume':
                 console.log('🔄 收到工作流恢复消息:', data.data);
-                // 🎯 工作流恢复时立即显示思考框（中断恢复的第二轮对话）
-                if (!messageManager.thinkingState.visible) {
-                    console.log('🎬 工作流恢复，重新显示思考框');
-                    messageManager.startThinking(data.session_id || currentSessionId);
-                }
+                // 🎯 工作流恢复时只更新思考框内容（中断恢复的第二轮对话）
                 if (data.data && data.data.message) {
-                    messageManager.updateThinkingProgress('workflow_resume', 'resumed', data.data.message);
+                    // 如果思考框存在，更新内容；否则创建
+                    if (messageManager.thinkingState.visible) {
+                        messageManager.updateThinkingProgress('workflow_resume', 'resumed', data.data.message);
+                    } else {
+                        console.log('🎬 工作流恢复，创建思考框');
+                        messageManager.startThinking(data.session_id || currentSessionId);
+                        messageManager.updateThinkingProgress('workflow_resume', 'resumed', data.data.message);
+                    }
                 }
                 break;
 
@@ -6503,8 +6823,8 @@ def optimize_data_processing():
             secondary: secondaryAction
         };
 
-        // 添加到消息容器
-        messagesContainer.appendChild(messageDiv);
+        // 使用智能插入函数，确保思考框始终在底部
+        insertMessageBeforeThinking(messageDiv, messagesContainer);
 
         // 平滑滚动到底部
         requestAnimationFrame(() => {
@@ -7631,6 +7951,12 @@ def optimize_data_processing():
      * 处理中断提示
      */
     function handleInterruptPrompt(prompt, nodeName) {
+        // 🎯 新增：收到中断消息时立即隐藏思考框
+        if (messageManager.thinkingState.visible) {
+            console.log('💭 收到中断消息，隐藏思考框');
+            messageManager.endThinking();
+        }
+        
         // 添加中断提示消息，使用普通AI消息样式
         const messagesContainer = document.getElementById('chatMessages');
         const interruptDiv = document.createElement('div');
@@ -7706,6 +8032,33 @@ def optimize_data_processing():
         if (messageManager.thinkingState.visible) {
             console.log(`🔄 更新思考步骤: ${nodeName} -> ${status}`);
             updateThinkingStep(nodeName, status, message);
+        } else {
+            console.log('⚠️ 思考框不可见，跳过步骤更新');
+        }
+        
+        // 错误状态额外显示错误提示
+        if (status === 'failed' || status === 'error') {
+            showError(`节点 ${nodeName} 执行失败: ${message}`, 5000);
+        }
+    }
+    
+    /**
+     * 更新节点状态（带悬停数据）
+     * 用于工具执行时，参数通过悬停显示
+     */
+    function updateNodeStatusWithHoverData(nodeName, status, message, hoverData) {
+        console.log(`📊 节点 ${nodeName} 状态: ${status} - ${message} (带悬停数据)`);
+        
+        // 收到任何节点状态时，如果思考框不可见就显示它
+        if (!messageManager.thinkingState.visible) {
+            console.log('🤔 首次收到节点状态，显示思考框');
+            messageManager.startThinking(currentSessionId);
+        }
+        
+        // 使用带悬停功能的更新方法
+        if (messageManager.thinkingState.visible) {
+            console.log(`🔄 更新思考步骤（带悬停）: ${nodeName} -> ${status}`);
+            messageManager.updateThinkingProgressWithHover(nodeName, status, message, hoverData);
         } else {
             console.log('⚠️ 思考框不可见，跳过步骤更新');
         }
@@ -8139,7 +8492,17 @@ def optimize_data_processing():
     }, 300000); // 每5分钟清理一次
 
     // ===== 初始化 =====
+    // 创建自定义renderer，让链接在新标签页中打开
+    const renderer = new marked.Renderer();
+    
+    // 重写link方法，添加target="_blank"和rel="noopener noreferrer"
+    renderer.link = function(href, title, text) {
+        const titleAttr = title ? ` title="${title}"` : '';
+        return `<a href="${href}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`;
+    };
+    
     marked.setOptions({
+        renderer: renderer,  // 使用自定义renderer
         highlight: function(code, lang) {
             if (lang && hljs.getLanguage(lang)) {
                 try {

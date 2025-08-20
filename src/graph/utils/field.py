@@ -126,7 +126,12 @@ def find_similar_fields(input_field: str, available_fields: list, threshold: Opt
 
 
 async def validate_fields_against_base_tables(fields: list, base_tables: list, source_code: str) -> dict:
-    """验证新增字段是否基于底表中的现有字段"""
+    """验证新增字段是否基于底表中的现有字段
+    
+    优先级策略：
+    1. 如果字段指定了source_table，优先使用该表进行验证
+    2. 如果未指定source_table，使用从源代码中提取的底表进行验证
+    """
     from src.cache import get_cache_manager
     
     validation_result = {
@@ -136,26 +141,164 @@ async def validate_fields_against_base_tables(fields: list, base_tables: list, s
         "base_tables_info": {}
     }
     
-    # 获取所有底表的字段信息
-    all_base_fields = []
-    
     # 记录开始时间和缓存状态
     start_time = datetime.now()
     cache_manager = get_cache_manager()
     initial_stats = cache_manager.get_stats() if cache_manager else {}
     
-    for table_name in base_tables:
-        logger.info(f"正在查询底表字段信息: {table_name}")
+    # 将字段按source_table分组
+    fields_by_table = {}
+    fields_without_table = []
+    
+    for field in fields:
+        # 兼容字典和对象访问
+        if isinstance(field, dict):
+            source_table = field.get("source_table", "")
+        else:
+            source_table = getattr(field, "source_table", "")
+        
+        if source_table and source_table.strip():
+            source_table = source_table.strip()
+            if source_table not in fields_by_table:
+                fields_by_table[source_table] = []
+            fields_by_table[source_table].append(field)
+            field_name = field.get('source_name', '') if isinstance(field, dict) else getattr(field, 'source_name', '')
+            logger.info(f"字段 {field_name} 指定了来源表: {source_table}")
+        else:
+            fields_without_table.append(field)
+    
+    # 优先级1：验证有明确source_table的字段
+    for table_name, table_fields in fields_by_table.items():
+        logger.info(f"正在查询指定底表字段信息: {table_name}")
         table_info = await get_table_fields_info(table_name)
         logger.info(f"mcp返回信息: {table_info}")
+        
         if table_info["status"] == "success":
-            table_fields = [field["name"] for field in table_info["fields"]]
-            all_base_fields.extend(table_fields)
-            validation_result["base_tables_info"][table_name] = table_fields
-            logger.info(f"底表 {table_name} 包含字段: {table_fields}")
+            table_field_names = [field["name"] for field in table_info["fields"]]
+            validation_result["base_tables_info"][table_name] = table_field_names
+            logger.info(f"底表 {table_name} 包含字段: {table_field_names}")
+            
+            # 验证该表的字段
+            for field in table_fields:
+                if isinstance(field, dict):
+                    source_name = field.get("source_name", "")
+                else:
+                    source_name = getattr(field, "source_name", "")
+                
+                # 查找相似字段
+                similar_fields = find_similar_fields(source_name, table_field_names)
+                
+                if not similar_fields:
+                    validation_result["valid"] = False
+                    validation_result["invalid_fields"].append(source_name)
+                    # 提供建议
+                    pattern_suggestions = _generate_pattern_suggestions(source_name, table_field_names)
+                    if pattern_suggestions:
+                        validation_result["suggestions"][source_name] = pattern_suggestions
+                    logger.warning(f"字段 {source_name} 在指定底表 {table_name} 中未找到相似字段")
+                else:
+                    # 如果相似度不够高，也提供建议
+                    if similar_fields[0]["similarity"] < 0.8:
+                        validation_result["suggestions"][source_name] = similar_fields
+                        logger.info(f"字段 {source_name} 在表 {table_name} 中找到相似字段: {[f['field_name'] for f in similar_fields[:3]]}")
         else:
-            logger.warning(f"无法获取底表 {table_name} 的字段信息: {table_info['message']}")
+            logger.warning(f"无法获取指定底表 {table_name} 的字段信息: {table_info['message']}")
             validation_result["base_tables_info"][table_name] = []
+            # 如果指定的表查询失败，将字段标记为无效
+            for field in table_fields:
+                if isinstance(field, dict):
+                    source_name = field.get("source_name", "")
+                else:
+                    source_name = getattr(field, "source_name", "")
+                validation_result["valid"] = False
+                validation_result["invalid_fields"].append(source_name)
+                logger.warning(f"由于无法查询表 {table_name}，字段 {source_name} 验证失败")
+    
+    # 优先级2：验证未指定source_table的字段（使用从代码提取的底表）
+    if fields_without_table:
+        # 获取所有底表的字段信息
+        all_base_fields = []
+        
+        for table_name in base_tables:
+            # 跳过已经查询过的表
+            if table_name in validation_result["base_tables_info"]:
+                all_base_fields.extend(validation_result["base_tables_info"][table_name])
+                continue
+                
+            logger.info(f"正在查询底表字段信息: {table_name}")
+            table_info = await get_table_fields_info(table_name)
+            logger.info(f"mcp返回信息: {table_info}")
+            if table_info["status"] == "success":
+                table_fields = [field["name"] for field in table_info["fields"]]
+                all_base_fields.extend(table_fields)
+                validation_result["base_tables_info"][table_name] = table_fields
+                logger.info(f"底表 {table_name} 包含字段: {table_fields}")
+            else:
+                logger.warning(f"无法获取底表 {table_name} 的字段信息: {table_info['message']}")
+                validation_result["base_tables_info"][table_name] = []
+        
+        # 验证未指定source_table的字段
+        if not all_base_fields:
+            # 检查是否是因为服务问题导致的失败
+            failed_tables = []
+            for table_name, fields_list in validation_result["base_tables_info"].items():
+                if not fields_list and table_name in base_tables:  # 空列表且是从代码提取的表表示查询失败
+                    failed_tables.append(table_name)
+            
+            if failed_tables:
+                # 如果有表查询失败，返回服务错误
+                error_msg = f"无法获取底表字段信息，MCP服务可能存在问题。失败的表：{', '.join(failed_tables)}\n\n请检查数据服务状态，稍后再试。"
+                logger.error(f"MCP服务问题导致字段验证失败: {failed_tables}")
+                
+                # 计算缓存统计
+                end_time = datetime.now()
+                duration = (end_time - start_time).total_seconds()
+                cache_performance = {
+                    "duration_seconds": round(duration, 2),
+                    "tables_queried": len(validation_result["base_tables_info"]),
+                    "cache_hits": 0,
+                    "cache_requests": 0,
+                    "overall_hit_rate": 0
+                }
+                
+                return {
+                    "valid": False,
+                    "service_error": True,
+                    "error_message": error_msg,
+                    "failed_tables": failed_tables,
+                    "base_tables_info": validation_result["base_tables_info"],
+                    "cache_performance": cache_performance
+                }
+            else:
+                # 如果没有底表需要验证，跳过未指定表的字段验证
+                logger.info("没有从代码中提取到底表，跳过未指定source_table的字段验证")
+        else:
+            logger.info(f"所有底表字段（用于验证未指定source_table的字段）: {all_base_fields}")
+            
+            # 检查每个未指定source_table的字段
+            for field in fields_without_table:
+                # 兼容字典和对象访问
+                if isinstance(field, dict):
+                    source_name = field.get("source_name", "")
+                else:
+                    source_name = getattr(field, "source_name", "")
+                
+                # 使用source_name检查是否在底表中存在相似字段
+                similar_fields = find_similar_fields(source_name, all_base_fields)
+                
+                if not similar_fields:
+                    validation_result["valid"] = False
+                    validation_result["invalid_fields"].append(source_name)  # 记录源字段名
+                    # 提供基于字段名称模式的建议
+                    pattern_suggestions = _generate_pattern_suggestions(source_name, all_base_fields)
+                    if pattern_suggestions:
+                        validation_result["suggestions"][source_name] = pattern_suggestions
+                    logger.warning(f"字段 {source_name} 在底表中未找到相似字段")
+                else:
+                    # 如果相似度不够高，也提供建议
+                    if similar_fields[0]["similarity"] < 0.8:
+                        validation_result["suggestions"][source_name] = similar_fields
+                        logger.info(f"字段 {source_name} 找到相似字段: {[f['field_name'] for f in similar_fields[:3]]}")
     
     # 记录结束时间和缓存统计
     end_time = datetime.now()
@@ -171,67 +314,17 @@ async def validate_fields_against_base_tables(fields: list, base_tables: list, s
     
     duration = (end_time - start_time).total_seconds()
     
-    logger.info(f"底表查询完成 - 耗时: {duration:.2f}秒, 查询了{len(base_tables)}个表, 缓存命中: {cache_hits_delta}/{cache_requests_delta}")
+    # 计算查询的表数量
+    tables_queried = len(validation_result["base_tables_info"])
+    
+    logger.info(f"底表查询完成 - 耗时: {duration:.2f}秒, 查询了{tables_queried}个表, 缓存命中: {cache_hits_delta}/{cache_requests_delta}")
     validation_result["cache_performance"] = {
         "duration_seconds": round(duration, 2),
-        "tables_queried": len(base_tables),
+        "tables_queried": tables_queried,
         "cache_hits": cache_hits_delta,
         "cache_requests": cache_requests_delta,
         "overall_hit_rate": cache_manager.get_stats()['hit_rate'] if cache_manager else 0
     }
-    
-    if not all_base_fields:
-        # 检查是否是因为服务问题导致的失败
-        failed_tables = []
-        for table_name, fields_list in validation_result["base_tables_info"].items():
-            if not fields_list:  # 空列表表示查询失败
-                failed_tables.append(table_name)
-        
-        if failed_tables:
-            # 如果有表查询失败，返回服务错误
-            error_msg = f"无法获取底表字段信息，MCP服务可能存在问题。失败的表：{', '.join(failed_tables)}\n\n请检查数据服务状态，稍后再试。"
-            logger.error(f"MCP服务问题导致字段验证失败: {failed_tables}")
-            return {
-                "valid": False,
-                "service_error": True,
-                "error_message": error_msg,
-                "failed_tables": failed_tables,
-                "base_tables_info": validation_result["base_tables_info"],
-                "cache_performance": validation_result["cache_performance"]
-            }
-        else:
-            # 如果没有底表需要验证，返回成功
-            logger.info("没有底表需要验证字段关联性")
-            return validation_result
-    
-    logger.info(f"所有底表字段: {all_base_fields}")
-    
-    # 检查每个新增字段
-    for field in fields:
-        # 兼容字典和对象访问
-        if isinstance(field, dict):
-            source_name = field.get("source_name", "")
-            physical_name = field.get("physical_name", "")
-        else:
-            source_name = getattr(field, "source_name", "")
-            physical_name = getattr(field, "physical_name", "")
-        
-        # 使用source_name检查是否在底表中存在相似字段
-        similar_fields = find_similar_fields(source_name, all_base_fields)
-        
-        if not similar_fields:
-            validation_result["valid"] = False
-            validation_result["invalid_fields"].append(source_name)  # 记录源字段名
-            # 提供基于字段名称模式的建议
-            pattern_suggestions = _generate_pattern_suggestions(source_name, all_base_fields)
-            if pattern_suggestions:
-                validation_result["suggestions"][source_name] = pattern_suggestions
-            logger.warning(f"字段 {source_name} 在底表中未找到相似字段")
-        else:
-            # 如果相似度不够高，也提供建议
-            if similar_fields[0]["similarity"] < 0.8:
-                validation_result["suggestions"][source_name] = similar_fields
-                logger.info(f"字段 {source_name} 找到相似字段: {[f['field_name'] for f in similar_fields[:3]]}")
     
     return validation_result
 

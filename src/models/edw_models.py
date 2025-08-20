@@ -2,7 +2,7 @@
 EDW系统数据模型定义
 """
 
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Dict, Any
 from pydantic import BaseModel, Field
 
 
@@ -11,6 +11,7 @@ class FieldDefinition(BaseModel):
     source_name: str = Field(description="来自底表的源字段名称，如：invoice_doc_no")
     physical_name: Optional[str] = Field(description="标准化后的物理字段名称，通过属性名称生成", default="")
     attribute_name: str = Field(description="字段的属性名称用于描述物理字段名称，如：Invoice Document Number, 如果用户没有明确指明，置空即可")
+    source_table: Optional[str] = Field(description="字段来源的底表名称，如：dwd_fi.fi_invoice", default="")
 
 
 class ModelEnhanceRequest(BaseModel):
@@ -84,4 +85,49 @@ class RefinementIntentAnalysis(BaseModel):
     suggested_response: Optional[str] = Field(
         description="建议对用户的回复内容",
         default=""
+    )
+
+
+class RequirementUnderstanding(BaseModel):
+    """需求理解结果模型 - 简化版"""
+    requirement_summary: str = Field(
+        description="用户需求的总结性说明，要求提取完整，比如新增字段逻辑，字段添加位置等"
+    )
+
+
+class RequirementFulfillmentReport(BaseModel):
+    """需求符合度报告模型 - 简化版"""
+    is_fulfilled: bool = Field(
+        default=True,
+        description="是否满足需求"
+    )
+    summary: str = Field(
+        default="",
+        description="需求符合度总结"
+    )
+
+
+class ReviewResult(BaseModel):
+    """代码评审结果模型 - 简化版"""
+    score: int = Field(
+        description="总分(0-100)"
+    )
+    feedback: str = Field(
+        description="整体评价"
+    )
+    suggestions: List[str] = Field(
+        default_factory=list,
+        description="改进建议"
+    )
+    has_syntax_errors: bool = Field(
+        default=False,
+        description="是否有语法错误"
+    )
+    dimension_scores: Dict[str, int] = Field(
+        default_factory=dict,
+        description="三个维度得分：requirement_match, syntax_check, code_quality"
+    )
+    requirement_fulfillment_report: RequirementFulfillmentReport = Field(
+        default_factory=RequirementFulfillmentReport,
+        description="需求符合度报告"
     )

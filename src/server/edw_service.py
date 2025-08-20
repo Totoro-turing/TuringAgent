@@ -91,7 +91,7 @@ class EDWStreamService:
                     self.config.session_id,
                     "workflow_start",
                     {
-                        "message": "EDW工作流开始执行",
+                        "message": "正在处理您的请求...",
                         "thread_id": self.current_thread_id,
                         "timestamp": datetime.now().isoformat()
                     }
@@ -273,7 +273,7 @@ class EDWStreamService:
                     self.config.session_id,
                     "workflow_resume",
                     {
-                        "message": "工作流恢复执行",
+                        "message": "继续处理您的请求...",
                         "user_input": user_input,
                         "timestamp": datetime.now().isoformat()
                     }
@@ -376,7 +376,7 @@ class EDWStreamService:
 
     async def _process_node_output(self, node_name: str, node_output: Dict) -> AsyncGenerator[Dict, None]:
         """
-        处理不同舒点的输出，生成相应的流式数据
+        处理不同节点的输出，生成相应的流式数据
 
         Args:
             node_name: 节点名称
@@ -393,110 +393,127 @@ class EDWStreamService:
             logger.info(f"导航节点识别任务类型: {task_type}")
             # 如果是other类型，表示将进入chat_node
             # 如果是model_dev类型，表示将进入model_node
-
+            # 对于model_dev_node，需要特殊处理
+        elif node_name == "model_dev_node":
+            # 从state中获取最后一条message（workflow_summary生成的内容）
+            messages = node_output.get("messages", [])
+            if messages:
+                last_message = messages[-1]
+                if hasattr(last_message, 'content'):
+                    # 直接发送content类型的数据，让前端能够显示
+                    logger.info(f"发送model_dev_node总结内容: {last_message.content[:100]}...")
+                    yield {
+                        "type": "content",
+                        "content": last_message.content,
+                        "session_id": self.config.session_id
+                    }
+                    await asyncio.sleep(0.02)  # 轻微延迟，模拟流式效果
+            else:
+                # 如果没有messages，尝试使用原有的流式处理
+                async for text_chunk in self._stream_chat_content(node_output):
+                    yield text_chunk
         # 聊天节点 - 流式返回AI响应（普通聊天）
-        elif node_name == "chat_node":
+        elif node_name in ("chat_node", "function_node"):
             async for text_chunk in self._stream_chat_content(node_output):
                 yield text_chunk
-
-        # 功能节点 - 流式返回功能执行结果
-        elif node_name == "function_node":
-            async for text_chunk in self._stream_chat_content(node_output):
-                yield text_chunk
-
-        # 验证子图 - 返回验证进度
-        elif node_name == "validation_subgraph":
-            validation_status = node_output.get("validation_status", "processing")
-            yield {
-                "type": "validation_progress",
-                "status": validation_status,
-                "message": node_output.get("status_message", "正在验证信息..."),
-                "session_id": self.config.session_id
-            }
-
-        # 代码增强节点 - 流式返回增强过程和结果
-        elif node_name == "model_enhance_node":
-            async for progress_chunk in self._stream_enhancement_progress(node_output):
-                yield progress_chunk
-
-        # 属性名称review节点 - 返回属性review结果
-        elif node_name == "attribute_review_subgraph" or node_name == "attribute_review":
-            avg_score = node_output.get("attribute_avg_score", 0)
-            review_results = node_output.get("attribute_review_results", [])
-            improvements_applied = node_output.get("attribute_improvements_applied", False)
-            
-            yield {
-                "type": "attribute_review",
-                "avg_score": avg_score,
-                "review_results": review_results,
-                "improvements_applied": improvements_applied,
-                "message": "属性命名review完成" if improvements_applied else "保持原有属性命名",
-                "session_id": self.config.session_id
-            }
-        
-        # 代码review节点 - 返回review结果
-        elif node_name == "code_review_subgraph" or node_name == "review":
-            review_score = node_output.get("review_score", 0)
-            review_feedback = node_output.get("review_feedback", "")
-            review_suggestions = node_output.get("review_suggestions", [])
-            review_round = node_output.get("review_round", 1)
-            
-            yield {
-                "type": "code_review",
-                "score": review_score,
-                "feedback": review_feedback,
-                "suggestions": review_suggestions,
-                "round": review_round,
-                "session_id": self.config.session_id
-            }
-        
-        # 代码重新生成节点 - 返回改进进度
-        elif node_name == "regenerate":
-            yield {
-                "type": "code_regeneration",
-                "status": node_output.get("status", "processing"),
-                "message": node_output.get("status_message", "正在根据review建议重新生成代码..."),
-                "session_id": self.config.session_id
-            }
-        
-        # 微调节点 - 返回微调后的代码
-        elif node_name == "code_refinement_node":
-            refined_code = node_output.get("enhance_code", "")
-            if refined_code:
-                yield {
-                    "type": "refined_code",
-                    "content": refined_code,
-                    "round": node_output.get("current_refinement_round", 1),
-                    "session_id": self.config.session_id
-                }
-
-        # GitHub推送节点
-        elif node_name == "github_push_node":
-            yield {
-                "type": "github_push",
-                "status": node_output.get("status", "processing"),
-                "message": node_output.get("status_message", "正在推送到GitHub..."),
-                "pr_url": node_output.get("pr_url", ""),
-                "session_id": self.config.session_id
-            }
-
-        # ADB更新节点
-        elif node_name == "adb_update_node":
-            yield {
-                "type": "adb_update",
-                "status": node_output.get("status", "processing"),
-                "message": node_output.get("status_message", "正在更新ADB..."),
-                "session_id": self.config.session_id
-            }
-
-        # Confluence节点
-        elif node_name == "confluence_node":
-            yield {
-                "type": "confluence_update",
-                "status": node_output.get("status", "processing"),
-                "page_url": node_output.get("confluence_page_url", ""),
-                "session_id": self.config.session_id
-            }
+        # # 功能节点 - 流式返回功能执行结果
+        # elif node_name == "function_node":
+        #     async for text_chunk in self._stream_chat_content(node_output):
+        #         yield text_chunk
+        #
+        # # 验证子图 - 返回验证进度
+        # elif node_name == "validation_subgraph":
+        #     validation_status = node_output.get("validation_status", "processing")
+        #     yield {
+        #         "type": "validation_progress",
+        #         "status": validation_status,
+        #         "message": node_output.get("status_message", "正在验证信息..."),
+        #         "session_id": self.config.session_id
+        #     }
+        #
+        # # 代码增强节点 - 流式返回增强过程和结果
+        # elif node_name == "model_enhance_node":
+        #     async for progress_chunk in self._stream_enhancement_progress(node_output):
+        #         yield progress_chunk
+        #
+        # # 属性名称review节点 - 返回属性review结果
+        # elif node_name == "attribute_review_subgraph" or node_name == "attribute_review":
+        #     avg_score = node_output.get("attribute_avg_score", 0)
+        #     review_results = node_output.get("attribute_review_results", [])
+        #     improvements_applied = node_output.get("attribute_improvements_applied", False)
+        #
+        #     yield {
+        #         "type": "attribute_review",
+        #         "avg_score": avg_score,
+        #         "review_results": review_results,
+        #         "improvements_applied": improvements_applied,
+        #         "message": "属性命名review完成" if improvements_applied else "保持原有属性命名",
+        #         "session_id": self.config.session_id
+        #     }
+        #
+        # # 代码review节点 - 返回review结果
+        # elif node_name == "code_review_subgraph" or node_name == "review":
+        #     review_score = node_output.get("review_score", 0)
+        #     review_feedback = node_output.get("review_feedback", "")
+        #     review_suggestions = node_output.get("review_suggestions", [])
+        #     review_round = node_output.get("review_round", 1)
+        #
+        #     yield {
+        #         "type": "code_review",
+        #         "score": review_score,
+        #         "feedback": review_feedback,
+        #         "suggestions": review_suggestions,
+        #         "round": review_round,
+        #         "session_id": self.config.session_id
+        #     }
+        #
+        # # 代码重新生成节点 - 返回改进进度
+        # elif node_name == "regenerate":
+        #     yield {
+        #         "type": "code_regeneration",
+        #         "status": node_output.get("status", "processing"),
+        #         "message": node_output.get("status_message", "正在根据review建议重新生成代码..."),
+        #         "session_id": self.config.session_id
+        #     }
+        #
+        # # 微调节点 - 返回微调后的代码
+        # elif node_name == "code_refinement_node":
+        #     refined_code = node_output.get("enhance_code", "")
+        #     if refined_code:
+        #         yield {
+        #             "type": "refined_code",
+        #             "content": refined_code,
+        #             "round": node_output.get("current_refinement_round", 1),
+        #             "session_id": self.config.session_id
+        #         }
+        #
+        # # GitHub推送节点
+        # elif node_name == "github_push_node":
+        #     yield {
+        #         "type": "github_push",
+        #         "status": node_output.get("status", "processing"),
+        #         "message": node_output.get("status_message", "正在推送到GitHub..."),
+        #         "pr_url": node_output.get("pr_url", ""),
+        #         "session_id": self.config.session_id
+        #     }
+        #
+        # # ADB更新节点
+        # elif node_name == "adb_update_node":
+        #     yield {
+        #         "type": "adb_update",
+        #         "status": node_output.get("status", "processing"),
+        #         "message": node_output.get("status_message", "正在更新ADB..."),
+        #         "session_id": self.config.session_id
+        #     }
+        #
+        # # Confluence节点
+        # elif node_name == "confluence_node":
+        #     yield {
+        #         "type": "confluence_update",
+        #         "status": node_output.get("status", "processing"),
+        #         "page_url": node_output.get("confluence_page_url", ""),
+        #         "session_id": self.config.session_id
+        #     }
 
         # 默认节点输出
         else:
@@ -515,16 +532,24 @@ class EDWStreamService:
         for msg in messages:
             if isinstance(msg, AIMessage):
                 content = msg.content
-                # 按字符分块，模拟打字效果
-                chunk_size = 10  # 每次输出10个字符
-                for i in range(0, len(content), chunk_size):
-                    chunk = content[i:i + chunk_size]
+                # 对于较短的内容（如workflow_summary），可以一次性发送
+                if len(content) < 500:
                     yield {
                         "type": "content",
-                        "content": chunk,
+                        "content": content,
                         "session_id": self.config.session_id
                     }
-                    await asyncio.sleep(0.02)  # 20ms延迟，模拟打字
+                else:
+                    # 长内容按字符分块，模拟打字效果
+                    chunk_size = 10  # 每次输出10个字符
+                    for i in range(0, len(content), chunk_size):
+                        chunk = content[i:i + chunk_size]
+                        yield {
+                            "type": "content",
+                            "content": chunk,
+                            "session_id": self.config.session_id
+                        }
+                        await asyncio.sleep(0.02)  # 20ms延迟，模拟打字
 
     async def _stream_enhancement_progress(self, node_output: Dict) -> AsyncGenerator[Dict, None]:
         """流式输出增强进度"""
@@ -567,12 +592,13 @@ class EDWStreamService:
         # 节点元数据映射
         node_meta = self._get_node_metadata(node_name)
 
-        # 构建推送数据
+        # 构建推送数据 - 使用增强的描述
         push_data = {
             "node": node_name,
             "meta": node_meta,
             "status": node_output.get("status", "processing"),
-            "message": node_output.get("status_message", ""),
+            "message": node_meta.get("description", node_output.get("status_message", f"正在处理 {node_name}...")),
+            "description": f"{node_meta.get('icon', '⚙️')} {node_meta.get('label', node_name)}",
             "timestamp": datetime.now().isoformat()
         }
 
@@ -594,30 +620,140 @@ class EDWStreamService:
             )
 
     def _get_node_metadata(self, node_name: str) -> Dict:
-        """获取节点元数据"""
+        """获取节点元数据 - 增强版"""
         metadata_map = {
-            "navigate_node": {"icon": "🧭", "label": "任务分类", "color": "#4CAF50"},
-            "chat_node": {"icon": "💬", "label": "智能对话", "color": "#2196F3"},
-            "function_node": {"icon": "⚡", "label": "功能执行", "color": "#673AB7"},
-            "validation_subgraph": {"icon": "✅", "label": "信息验证", "color": "#FF9800"},
-            "attribute_review_subgraph": {"icon": "📝", "label": "属性命名Review", "color": "#00BCD4"},
-            "attribute_review": {"icon": "✏️", "label": "属性评估", "color": "#00ACC1"},
-            "model_enhance_node": {"icon": "🚀", "label": "代码增强", "color": "#9C27B0"},
-            "code_review_subgraph": {"icon": "🔍", "label": "代码Review", "color": "#FF5722"},
-            "review": {"icon": "📊", "label": "质量评估", "color": "#FF5722"},
-            "regenerate": {"icon": "🔧", "label": "代码改进", "color": "#FF6F00"},
-            "code_refinement_node": {"icon": "✨", "label": "代码微调", "color": "#00BCD4"},
-            "refinement_inquiry_node": {"icon": "💭", "label": "微调询问", "color": "#FFC107"},
-            "refinement_intent_node": {"icon": "🎯", "label": "意图识别", "color": "#795548"},
-            "github_push_node": {"icon": "📤", "label": "推送GitHub", "color": "#607D8B"},
-            "adb_update_node": {"icon": "🔄", "label": "更新ADB", "color": "#E91E63"},
-            "confluence_node": {"icon": "📝", "label": "生成文档", "color": "#3F51B5"},
-            "email_node": {"icon": "📧", "label": "发送邮件", "color": "#009688"}
+            "navigate_node": {
+                "icon": "🧭", 
+                "label": "任务分类", 
+                "color": "#4CAF50",
+                "description": "正在分析您的需求类型..."
+            },
+            "chat_node": {
+                "icon": "💬", 
+                "label": "智能对话", 
+                "color": "#2196F3",
+                "description": "正在与AI助手对话..."
+            },
+            "function_node": {
+                "icon": "⚡", 
+                "label": "功能执行", 
+                "color": "#673AB7",
+                "description": "正在执行功能任务..."
+            },
+            "validation_subgraph": {
+                "icon": "✅", 
+                "label": "信息验证", 
+                "color": "#FF9800",
+                "description": "正在验证必要信息的完整性..."
+            },
+            "search_table_code_node": {
+                "icon": "🔍",
+                "label": "代码搜索",
+                "color": "#4CAF50",
+                "description": "正在搜索目标表的代码文件..."
+            },
+            "requirement_extraction_node": {
+                "icon": "📋",
+                "label": "需求提取",
+                "color": "#2196F3",
+                "description": "正在提取和理解您的需求..."
+            },
+            "field_standardization_node": {
+                "icon": "📏",
+                "label": "字段标准化",
+                "color": "#9C27B0",
+                "description": "正在标准化字段命名..."
+            },
+            "attribute_review_subgraph": {
+                "icon": "📝", 
+                "label": "属性命名Review", 
+                "color": "#00BCD4",
+                "description": "正在评审字段属性名称..."
+            },
+            "attribute_review": {
+                "icon": "✏️", 
+                "label": "属性评估", 
+                "color": "#00ACC1",
+                "description": "正在评估属性命名的规范性..."
+            },
+            "model_enhance_node": {
+                "icon": "🚀", 
+                "label": "代码增强", 
+                "color": "#9C27B0",
+                "description": "正在生成增强代码..."
+            },
+            "code_enhance_node": {
+                "icon": "⚙️",
+                "label": "代码生成",
+                "color": "#673AB7",
+                "description": "正在生成优化后的代码..."
+            },
+            "code_review_subgraph": {
+                "icon": "🔍", 
+                "label": "代码Review", 
+                "color": "#FF5722",
+                "description": "正在评审代码质量..."
+            },
+            "review": {
+                "icon": "📊", 
+                "label": "质量评估", 
+                "color": "#FF5722",
+                "description": "正在评估代码质量和需求符合度..."
+            },
+            "regenerate": {
+                "icon": "🔧", 
+                "label": "代码改进", 
+                "color": "#FF6F00",
+                "description": "根据评审意见改进代码..."
+            },
+            "code_refinement_node": {
+                "icon": "✨", 
+                "label": "代码微调", 
+                "color": "#00BCD4",
+                "description": "正在微调代码细节..."
+            },
+            "refinement_inquiry_node": {
+                "icon": "💭", 
+                "label": "微调询问", 
+                "color": "#FFC107",
+                "description": "正在询问微调需求..."
+            },
+            "refinement_intent_node": {
+                "icon": "🎯", 
+                "label": "意图识别", 
+                "color": "#795548",
+                "description": "正在识别用户意图..."
+            },
+            "github_push_node": {
+                "icon": "📤", 
+                "label": "推送GitHub", 
+                "color": "#607D8B",
+                "description": "正在推送代码到GitHub..."
+            },
+            "adb_update_node": {
+                "icon": "🔄", 
+                "label": "更新ADB", 
+                "color": "#E91E63",
+                "description": "正在更新ADB数据库..."
+            },
+            "confluence_node": {
+                "icon": "📝", 
+                "label": "生成文档", 
+                "color": "#3F51B5",
+                "description": "正在生成技术文档..."
+            },
+            "email_node": {
+                "icon": "📧", 
+                "label": "发送邮件", 
+                "color": "#009688",
+                "description": "正在发送邮件通知..."
+            }
         }
         return metadata_map.get(node_name, {
             "icon": "⚙️",
             "label": node_name.replace("_", " ").title(),
-            "color": "#757575"
+            "color": "#757575",
+            "description": f"正在处理 {node_name}..."
         })
 
     def _get_task_type_label(self, task_type: str) -> str:

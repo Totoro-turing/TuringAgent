@@ -46,6 +46,7 @@ class EDWAgentManager:
             self._create_navigation_agent()
             self._create_chat_agent()
             self._create_validation_agent()
+            self._create_review_agent()  # 创建review代理
             
             self._initialized = True
             logger.info("EDW智能代理管理器同步初始化完成")
@@ -74,6 +75,28 @@ class EDWAgentManager:
         )
         logger.info("聊天代理创建完成（使用交互记忆）")
     
+    def _create_review_agent(self):
+        """创建代码评审代理 - 负责理解用户需求并评估代码质量"""
+        review_prompt = """你是一个专业的代码评审专家，负责：
+1. 从对话历史中全面理解用户需求
+2. 评估代码是否满足这些需求
+
+分析对话历史时请注意：
+- 用户可能通过多轮对话逐步明确需求
+- 需求可能有修改或补充
+- 提取最终确定的完整需求点
+- 理解需求的业务背景和技术细节
+
+你有访问完整对话历史的能力，可以看到用户与系统的全部交互过程。"""
+        
+        self.agents['review'] = create_react_agent(
+            model=self.llm,
+            tools=[],
+            prompt=review_prompt,
+            checkpointer=self.business_checkpointer  # 共享业务处理记忆
+        )
+        logger.info("代码评审代理创建完成（使用业务记忆）")
+    
     def _create_validation_agent(self):
         """创建验证代理 - 负责分析用户的模型增强需求并提取关键信息"""
         validation_prompt = f"""你是一名数据开发专家，负责分析用户的模型增强需求并提取关键信息。
@@ -92,16 +115,24 @@ class EDWAgentManager:
   - source_name: 源字段名称（来自底表的字段名，下划线连接的小写英文，如：invoice_doc_no）
   - physical_name: 留空字符串（这个字段会在后续标准化步骤中生成）
   - attribute_name: 属性名称，即字段的业务含义描述（首字母大写的英文描述，如：Invoice Document Number)，如果用户没有明确提供请置空
+  - source_table: 字段来源的底表名称（如果用户明确指出，如："从dwd_fi.fi_invoice表取invoice_doc_no"，则填入"dwd_fi.fi_invoice"，否则留空）
 - 分支名称是必需的，用于确定从哪个代码分支获取源代码
 
 示例：
-用户输入："给表增加invoice_doc_no（Invoice Document Number）和customer_type（Customer Type）两个字段，分支是feature/add-invoice"
+示例1 - 用户输入："给表增加invoice_doc_no（Invoice Document Number）和customer_type（Customer Type）两个字段，分支是feature/add-invoice"
 应该提取：
 - table_name: "表名"
 - branch_name: "feature/add-invoice"
 - fields: [
-    {{"source_name": "invoice_doc_no", "physical_name": "", "attribute_name": "Invoice Document Number"}},
-    {{"source_name": "customer_type", "physical_name": "", "attribute_name": "Customer Type"}}
+    {{"source_name": "invoice_doc_no", "physical_name": "", "attribute_name": "Invoice Document Number", "source_table": ""}},
+    {{"source_name": "customer_type", "physical_name": "", "attribute_name": "Customer Type", "source_table": ""}}
+  ]
+
+示例2 - 用户输入："从dwd_fi.fi_invoice表取invoice_doc_no字段，从dwd_customer.customer_info表取customer_type字段添加到目标表"
+应该提取：
+- fields: [
+    {{"source_name": "invoice_doc_no", "physical_name": "", "attribute_name": "", "source_table": "dwd_fi.fi_invoice"}},
+    {{"source_name": "customer_type", "physical_name": "", "attribute_name": "", "source_table": "dwd_customer.customer_info"}}
   ]
 
 {self.parser.get_format_instructions()}
@@ -401,6 +432,10 @@ def get_chat_agent():
 def get_validation_agent():
     """获取验证代理"""
     return get_agent_manager().get_agent('validation')
+
+def get_review_agent():
+    """获取代码评审代理"""
+    return get_agent_manager().get_agent('review')
 
 def get_code_enhancement_agent():
     """获取代码增强智能体"""

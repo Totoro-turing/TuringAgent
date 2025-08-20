@@ -6,6 +6,8 @@
 
 import logging
 import time
+import json
+import ast
 from typing import Dict, List, Any, Optional
 from langchain.callbacks.base import BaseCallbackHandler
 from langchain.schema import AgentAction, AgentFinish, LLMResult
@@ -53,24 +55,38 @@ class ToolCallMonitor(BaseCallbackHandler):
                 "status": "calling"
             })
             
-            # 发送工具调用开始消息
+            # 发送工具调用决策消息（简化版，详细参数在on_tool_start中显示）
             send_progress(
                 self.state,
                 self.node_name,
                 "processing",
-                f"🔧 正在调用工具: **{tool_name}**",
+                f"🔧 Agent决定使用工具: **{tool_name}**",
                 0.0,
                 {
-                    "action": "tool_start",
+                    "action": "tool_decision",
                     "tool_name": tool_name,
-                    "tool_input": self._sanitize_input(tool_input)
+                    "tool_input_summary": self._get_input_summary(tool_input)
                 }
             )
             
-            logger.info(f"Agent开始调用工具: {tool_name}")
+            logger.info(f"Agent决定调用工具: {tool_name}")
             
         except Exception as e:
             logger.error(f"监控工具调用开始失败: {e}")
+    
+    def _get_input_summary(self, tool_input: Any) -> str:
+        """获取工具输入的简要摘要"""
+        try:
+            if isinstance(tool_input, dict):
+                # 返回主要参数的键名
+                keys = list(tool_input.keys())[:3]
+                return f"参数: {', '.join(keys)}" + (f" 等{len(tool_input)}个" if len(tool_input) > 3 else "")
+            elif isinstance(tool_input, str):
+                return f"文本参数 ({len(tool_input)}字符)"
+            else:
+                return "其他参数"
+        except Exception:
+            return "参数摘要不可用"
     
     def on_tool_start(
         self, 
@@ -86,15 +102,41 @@ class ToolCallMonitor(BaseCallbackHandler):
             # 记录开始时间
             self.tool_start_times[run_id] = time.time()
             
+            # 简化参数处理 - 只尝试解析为字典，不做复杂判断
+            tool_input = None
+            try:
+                if input_str and input_str.strip():
+                    # 尝试使用ast.literal_eval（处理Python dict格式）
+                    if input_str.strip().startswith('{') or input_str.strip().startswith('['):
+                        try:
+                            tool_input = ast.literal_eval(input_str)
+                        except:
+                            # 失败则尝试JSON
+                            try:
+                                tool_input = json.loads(input_str)
+                            except:
+                                # 都失败就用原始字符串
+                                tool_input = {"input": input_str}
+                    else:
+                        tool_input = {"input": input_str}
+            except Exception as e:
+                logger.debug(f"解析工具输入失败: {e}")
+                tool_input = {"input": input_str[:500] if input_str else ""}
+            
+            # 简单的消息 - 只显示工具名称，参数通过socket发送给前端
+            message = f"⚙️ 执行工具: **{tool_name}**"
+            
             send_progress(
                 self.state,
                 self.node_name,
                 "processing",
-                f"⚙️ 执行工具: **{tool_name}**...",
+                message,
                 0.0,
                 {
                     "action": "tool_executing",
-                    "tool_name": tool_name
+                    "tool_name": tool_name,
+                    "tool_input": tool_input,  # 完整参数通过socket发送，前端决定是否显示
+                    "show_on_hover": True  # 标记为悬停显示
                 }
             )
             
@@ -181,21 +223,26 @@ class ToolCallMonitor(BaseCallbackHandler):
             logger.error(f"监控Agent完成失败: {e}")
     
     def _sanitize_input(self, tool_input: Any) -> Dict[str, Any]:
-        """清理工具输入以便安全传输"""
+        """清理工具输入以便安全传输 - 简化版本"""
         try:
             if isinstance(tool_input, dict):
-                # 限制字符串长度，避免传输过大数据
+                # 简单截断过长的值
                 sanitized = {}
                 for key, value in tool_input.items():
-                    if isinstance(value, str) and len(value) > 200:
-                        sanitized[key] = value[:200] + "..."
+                    if isinstance(value, str) and len(value) > 500:
+                        sanitized[key] = value[:500] + f"... (共{len(value)}字符)"
+                    elif isinstance(value, (list, dict)):
+                        json_str = json.dumps(value, ensure_ascii=False)
+                        if len(json_str) > 500:
+                            sanitized[key] = json_str[:500] + "..."
+                        else:
+                            sanitized[key] = value
                     else:
                         sanitized[key] = value
                 return sanitized
-            elif isinstance(tool_input, str):
-                return {"input": tool_input[:200] + "..." if len(tool_input) > 200 else tool_input}
             else:
-                return {"input": str(tool_input)[:200]}
+                # 非字典类型直接返回
+                return {"input": str(tool_input)[:500] if len(str(tool_input)) > 500 else str(tool_input)}
         except Exception:
             return {"input": "无法解析"}
     
@@ -214,6 +261,7 @@ class ToolCallMonitor(BaseCallbackHandler):
             return output[:100] + "..."
         except Exception:
             return "无法预览"
+    
 
 
 class EnhancedToolMonitor(ToolCallMonitor):
@@ -258,23 +306,43 @@ class EnhancedToolMonitor(ToolCallMonitor):
             # 更新统计
             self.execution_stats["total_tools"] += 1
             
-            # 发送详细的决策信息
-            if self.enable_detailed_logging:
-                send_progress(
-                    self.state,
-                    self.node_name,
-                    "processing",
-                    f"🎯 AI决定使用工具: **{action.tool}**",
-                    0.0,
-                    {
-                        "action": "tool_decision",
-                        "tool_name": action.tool,
-                        "reasoning": self._extract_reasoning(action.log)
-                    }
-                )
+            # 发送额外的推理信息（如果有）
+            if self.enable_detailed_logging and action.log:
+                reasoning = self._extract_reasoning(action.log)
+                if reasoning and reasoning != "无推理信息":
+                    send_progress(
+                        self.state,
+                        self.node_name,
+                        "processing",
+                        f"💭 推理: {reasoning}",
+                        0.0,
+                        {
+                            "action": "tool_reasoning",
+                            "tool_name": action.tool,
+                            "reasoning": reasoning
+                        }
+                    )
                 
         except Exception as e:
             logger.error(f"增强监控Agent动作失败: {e}")
+    
+    def on_tool_start(
+        self, 
+        serialized: Dict[str, Any], 
+        input_str: str, 
+        **kwargs: Any
+    ) -> Any:
+        """增强的工具开始执行监控 - 提供更详细的参数展示"""
+        try:
+            # 调用父类方法，已经发送了基本的工具执行信息
+            super().on_tool_start(serialized, input_str, **kwargs)
+            
+            # 如果是第一个工具，记录开始时间
+            if self.execution_stats["start_time"] is None:
+                self.execution_stats["start_time"] = time.time()
+            
+        except Exception as e:
+            logger.error(f"增强监控工具开始失败: {e}")
     
     def on_tool_end(self, output: str, **kwargs: Any) -> Any:
         """增强的工具完成监控"""

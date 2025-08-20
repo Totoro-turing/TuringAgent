@@ -7,6 +7,7 @@ ADB更新节点
 import logging
 from datetime import datetime
 from typing import Dict, Any
+from langchain.schema.messages import AIMessage
 
 from src.graph.tools.adb_tools import update_adb_notebook, detect_code_language
 from src.graph.utils.progress import send_node_start, send_node_processing, send_node_completed, send_node_failed
@@ -45,6 +46,7 @@ async def edw_adb_update_node(state: Dict[str, Any]) -> Dict[str, Any]:
             logger.error(error_msg)
             send_node_failed(state, "adb_update", error_msg)
             return {
+                "messages": [AIMessage(content=f"ADB更新跳过: {error_msg}")],
                 "error_message": error_msg,
                 "user_id": user_id
             }
@@ -54,6 +56,7 @@ async def edw_adb_update_node(state: Dict[str, Any]) -> Dict[str, Any]:
             logger.error(error_msg)
             send_node_failed(state, "adb_update", error_msg)
             return {
+                "messages": [AIMessage(content=f"ADB更新跳过: {error_msg}")],
                 "error_message": error_msg,
                 "user_id": user_id
             }
@@ -91,7 +94,17 @@ async def edw_adb_update_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 }
             )
             
+            # 构建成功消息
+            update_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            message_content = f"已成功更新ADB笔记本\n\n"
+            message_content += f"路径: {adb_code_path}\n"
+            message_content += f"语言: {language}\n"
+            if table_name:
+                message_content += f"表名: {table_name}\n"
+            message_content += f"更新时间: {update_time}"
+            
             return {
+                "messages": [AIMessage(content=message_content)],
                 "user_id": user_id,
                 "adb_update_result": update_result,
                 "adb_path_updated": adb_code_path,
@@ -105,6 +118,7 @@ async def edw_adb_update_node(state: Dict[str, Any]) -> Dict[str, Any]:
             # 🎯 发送失败进度
             send_node_failed(state, "adb_update", error_msg)
             return {
+                "messages": [AIMessage(content=f"ADB更新失败: {error_msg}")],
                 "error_message": error_msg,
                 "user_id": user_id,
                 "adb_path": adb_code_path
@@ -116,6 +130,7 @@ async def edw_adb_update_node(state: Dict[str, Any]) -> Dict[str, Any]:
         # 🎯 发送异常失败进度
         send_node_failed(state, "adb_update", error_msg)
         return {
+            "messages": [AIMessage(content=f"ADB节点处理失败: {str(e)}")],
             "error_message": error_msg,
             "user_id": state.get("user_id", "")
         }

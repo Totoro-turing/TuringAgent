@@ -370,7 +370,7 @@ class ConfluenceWorkflowTools:
             table_name.split('.', 1)[1] if '.' in table_name else table_name
         )
             
-        return f"{date_str}: {domain} Data Model Review - {display_name}"
+        return f"{date_str}: {domain} Data Model Review - {display_name} [AI Generate]"
     
     def _generate_review_info(self, table_name: str, schema: str, model_name: str = "") -> Dict[str, Any]:
         """生成审核信息"""

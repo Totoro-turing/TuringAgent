@@ -27,7 +27,7 @@ llm_agent = get_navigation_agent()
 chat_agent = get_chat_agent()
 
 
-def navigate_node(state: EDWState):
+async def navigate_node(state: EDWState):
     """导航节点：负责用户输入的初始分类"""
     
     # 如果已经有type且不为空，且不是None，且不是'other'，直接返回
@@ -72,7 +72,7 @@ def navigate_node(state: EDWState):
         else:
             content = last_message.content if hasattr(last_message, 'content') else str(last_message)
         
-        response = llm_agent.invoke(
+        response = await llm_agent.ainvoke(
             {"messages": [{"role": "user", "content": prompt.format(input=content)}]},
             config
         )

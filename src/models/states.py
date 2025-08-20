@@ -90,6 +90,9 @@ class EDWState(TypedDict):
     
     # 🎯 AI上下文感知提示 - 用于存储准备节点生成的提示信息
     ai_response: Optional[str]  # AI生成的上下文感知提示信息，供中断节点使用
+    
+    # 🎯 代码语言类型 - 用于正确显示代码高亮
+    code_language: Optional[str]  # 代码语言：sql, python等
 
 class ValidationState(TypedDict):
     """验证子图专用状态 - 包含所有验证流程需要的字段"""

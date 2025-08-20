@@ -42,6 +42,7 @@ from src.graph.nodes import (
     # Review子图
     create_review_subgraph,
 )
+from src.graph.nodes.core.workflow_summary import workflow_summary_node
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -78,6 +79,8 @@ def create_model_dev_graph():
         .add_node("adb_update_node", edw_adb_update_node)
         .add_node("email_node", edw_email_node)
         .add_node("confluence_node", edw_confluence_node)
+        # 总结节点
+        .add_node("workflow_summary", workflow_summary_node)
         
         # 路由配置
         .add_conditional_edges(START, model_routing_fun, [
@@ -111,7 +114,8 @@ def create_model_dev_graph():
         .add_edge("github_push_node", "adb_update_node")
         .add_edge("adb_update_node", "confluence_node")
         .add_edge("confluence_node", "email_node")
-        .add_edge("email_node", END)
+        .add_edge("email_node", "workflow_summary")
+        .add_edge("workflow_summary", END)
     )
     
     # 使用business checkpointer编译，支持interrupt状态保存

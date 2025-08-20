@@ -15,7 +15,8 @@ class LLMFactory:
             temperature=0,
             model="deepseek-chat",
             api_key=os.getenv('DEEPSEEK_API_KEY'),
-            base_url=os.getenv('DEEPSEEK_BASE_URL')
+            base_url=os.getenv('DEEPSEEK_BASE_URL'),
+            max_tokens=8000
         )
 
 

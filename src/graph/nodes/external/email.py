@@ -6,6 +6,7 @@
 
 import logging
 from typing import Dict, Any
+from langchain.schema.messages import AIMessage
 
 from src.graph.tools.email_tools import send_model_review_email
 from src.graph.utils.progress import send_node_start, send_node_processing, send_node_completed, send_node_failed
@@ -69,12 +70,21 @@ async def edw_email_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 }
             )
             
+            # 构建成功消息
+            email_subject = send_result.get("metadata", {}).get("email_subject", f"Model Review Request - {model_name or table_name}")
+            message_content = f"已成功发送模型评审邮件\n\n"
+            message_content += f"收件人: Review Team\n"
+            message_content += f"主题: {email_subject}\n"
+            message_content += f"表名: {table_name}\n"
+            message_content += f"Confluence文档: {'已包含' if confluence_page_url else '未包含'}"
+            
             # 构建成功响应
             return {
+                "messages": [AIMessage(content=message_content)],
                 "user_id": user_id,
                 "email_sent": True,
                 "email_format": "HTML",
-                "email_subject": send_result.get("metadata", {}).get("email_subject", f"Model Review Request - {model_name or table_name}"),
+                "email_subject": email_subject,
                 "confluence_link_included": bool(confluence_page_url),
                 "confluence_page_url": confluence_page_url,
                 "session_state": "email_sent"
@@ -85,6 +95,7 @@ async def edw_email_node(state: Dict[str, Any]) -> Dict[str, Any]:
             # 🎯 发送失败进度
             send_node_failed(state, "email", error_msg)
             return {
+                "messages": [AIMessage(content=f"邮件发送失败: {error_msg}")],
                 "error_message": error_msg,
                 "user_id": user_id,
                 "email_sent": False
@@ -96,6 +107,7 @@ async def edw_email_node(state: Dict[str, Any]) -> Dict[str, Any]:
         # 🎯 发送异常失败进度
         send_node_failed(state, "email", error_msg)
         return {
+            "messages": [AIMessage(content=f"邮件节点处理失败: {str(e)}")],
             "error_message": error_msg,
             "user_id": state.get("user_id", ""),
             "email_sent": False

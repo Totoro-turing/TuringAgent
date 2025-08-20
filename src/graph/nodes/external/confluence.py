@@ -6,6 +6,7 @@ Confluence文档节点
 
 import logging
 from typing import Dict, Any
+from langchain.schema.messages import AIMessage
 
 from src.graph.tools.confluence_tools import create_model_documentation
 from src.graph.utils.progress import send_node_start, send_node_processing, send_node_completed, send_node_failed
@@ -87,7 +88,17 @@ async def edw_confluence_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 }
             )
             
+            # 构建成功消息
+            message_content = f"已成功创建Confluence文档\n\n"
+            message_content += f"文档标题: {confluence_title or table_name}\n"
+            if confluence_page_id:
+                message_content += f"页面ID: {confluence_page_id}\n"
+            if confluence_page_url:
+                message_content += f"文档链接: {confluence_page_url}\n"
+            message_content += f"增强类型: {enhancement_type}"
+            
             return {
+                "messages": [AIMessage(content=message_content)],
                 "user_id": user_id,
                 # 将Confluence信息保存到state中供后续节点使用
                 "confluence_page_url": confluence_page_url,
@@ -104,6 +115,7 @@ async def edw_confluence_node(state: Dict[str, Any]) -> Dict[str, Any]:
             # 🎯 发送失败进度
             send_node_failed(state, "confluence", error_msg)
             return {
+                "messages": [AIMessage(content=f"Confluence文档创建失败: {error_msg}")],
                 "error_message": error_msg,
                 "user_id": user_id,
                 "confluence_attempted": True
@@ -115,6 +127,7 @@ async def edw_confluence_node(state: Dict[str, Any]) -> Dict[str, Any]:
         # 🎯 发送异常失败进度
         send_node_failed(state, "confluence", error_msg)
         return {
+            "messages": [AIMessage(content=f"Confluence节点处理失败: {str(e)}")],
             "error_message": error_msg,
             "user_id": state.get("user_id", "")
         }

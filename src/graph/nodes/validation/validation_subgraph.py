@@ -521,6 +521,7 @@ def search_table_code_node(state: EDWState) -> dict:
             "code_path": code_path,
             "adb_code_path": adb_path,
             "base_tables": base_tables,
+            "code_language": code_info.get("language", "sql").lower(),  # 🎯 保存代码语言
             "collected_info": {
                 "table_code_info": code_info,
                 "adb_path": adb_path,
