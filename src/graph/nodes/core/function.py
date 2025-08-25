@@ -8,7 +8,7 @@ import json
 from typing import Dict, Any
 from langchain.schema.messages import HumanMessage, AIMessage
 
-from src.graph.utils.progress import send_node_start, send_node_processing, send_node_completed, send_node_failed
+from src.graph.utils.message_sender import send_node_message
 from src.models.states import EDWState
 from src.agent.edw_agents import get_agent_manager
 from src.graph.utils.session import SessionManager
@@ -23,7 +23,7 @@ async def edw_function_handler_node(state: EDWState) -> Dict[str, Any]:
     处理各种工具性任务，如名称转换、查询操作等
     """
     # 发送开始进度
-    send_node_start(state, "function_handler", "开始处理功能性任务...")
+    send_node_message(state, "function_handler", "started", "开始处理功能性任务...")
 
     try:
         logger.info("进入EDW功能性节点（异步版本）")
@@ -36,7 +36,7 @@ async def edw_function_handler_node(state: EDWState) -> Dict[str, Any]:
         if not function_agent:
             error_msg = "功能Agent未正确初始化，请检查项目启动时的初始化流程"
             logger.error(error_msg)
-            send_node_failed(state, "function_handler", error_msg)
+            send_node_message(state, "function_handler", "failed", f"错误: {error_msg}", 0.0)
             return {
                 "messages": [AIMessage(content=f"系统错误：{error_msg}")],
                 "error_message": error_msg,
@@ -53,7 +53,7 @@ async def edw_function_handler_node(state: EDWState) -> Dict[str, Any]:
         logger.info(f"用户请求: {user_input[:100]}...")
 
         # 发送解析请求进度
-        send_node_processing(state, "function_handler", f"正在解析用户需求：**{user_input[:30]}...**", 0.3)
+        send_node_message(state, "function_handler", "processing", f"正在解析用户需求：**{user_input[:30]}...**", 0.3)
 
         # 获取带监控的会话配置
         config = SessionManager.get_config_with_monitor(
@@ -71,7 +71,7 @@ async def edw_function_handler_node(state: EDWState) -> Dict[str, Any]:
             )
 
             # 发送处理完成进度
-            send_node_processing(state, "function_handler", "正在整理执行结果...", 0.8)
+            send_node_message(state, "function_handler", "processing", "正在整理执行结果...", 0.8)
 
             # 获取响应内容
             if isinstance(response, dict) and "messages" in response:
@@ -91,7 +91,7 @@ async def edw_function_handler_node(state: EDWState) -> Dict[str, Any]:
             logger.info(f"功能执行成功: {result_content[:200]}...")
 
             # 发送完成进度
-            send_node_completed(state, "function_handler", "✅ 功能任务执行完成！", {
+            send_node_message(state, "function_handler", "completed", "✅ 功能任务执行完成！", 1.0, {
                 "result_type": "function_execution",
                 "result_length": len(result_content)
             })

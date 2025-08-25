@@ -14,7 +14,7 @@ from langchain.schema import AgentAction, AgentFinish, LLMResult
 from langchain.schema.messages import BaseMessage
 
 from src.models.states import EDWState
-from src.graph.utils.progress import send_progress
+from src.graph.utils.message_sender import send_tool_message, send_node_message
 
 logger = logging.getLogger(__name__)
 
@@ -56,13 +56,13 @@ class ToolCallMonitor(BaseCallbackHandler):
             })
             
             # 发送工具调用决策消息（简化版，详细参数在on_tool_start中显示）
-            send_progress(
-                self.state,
-                self.node_name,
-                "processing",
-                f"🔧 Agent决定使用工具: **{tool_name}**",
-                0.0,
-                {
+            send_node_message(
+                state=self.state,
+                node_name=self.node_name,
+                status="processing",
+                message=f"🔧 我需要调用工具: **{tool_name}**",
+                progress=0.0,
+                extra_data={
                     "action": "tool_decision",
                     "tool_name": tool_name,
                     "tool_input_summary": self._get_input_summary(tool_input)
@@ -126,18 +126,13 @@ class ToolCallMonitor(BaseCallbackHandler):
             # 简单的消息 - 只显示工具名称，参数通过socket发送给前端
             message = f"⚙️ 执行工具: **{tool_name}**"
             
-            send_progress(
-                self.state,
-                self.node_name,
-                "processing",
-                message,
-                0.0,
-                {
-                    "action": "tool_executing",
-                    "tool_name": tool_name,
-                    "tool_input": tool_input,  # 完整参数通过socket发送，前端决定是否显示
-                    "show_on_hover": True  # 标记为悬停显示
-                }
+            send_tool_message(
+                state=self.state,
+                action="start", 
+                tool_name=tool_name,
+                message=message,
+                tool_input=tool_input,  # 完整参数通过socket发送，前端决定是否显示
+                show_on_hover=True  # 标记为悬停显示
             )
             
         except Exception as e:
@@ -161,18 +156,13 @@ class ToolCallMonitor(BaseCallbackHandler):
                 
                 tool_name = self.current_tools[-1]["name"]
                 
-                send_progress(
-                    self.state,
-                    self.node_name,
-                    "processing",
-                    f"✅ 工具 **{tool_name}** 执行完成 ({duration:.1f}秒)",
-                    0.0,
-                    {
-                        "action": "tool_complete",
-                        "tool_name": tool_name,
-                        "duration": duration,
-                        "output_preview": self._get_output_preview(output)
-                    }
+                send_tool_message(
+                    state=self.state,
+                    action="complete",
+                    tool_name=tool_name,
+                    message=f"✅ 工具 **{tool_name}** 执行完成 ({duration:.1f}秒)",
+                    duration=duration,
+                    output_preview=self._get_output_preview(output)
                 )
                 
         except Exception as e:
@@ -188,17 +178,12 @@ class ToolCallMonitor(BaseCallbackHandler):
                 
                 tool_name = self.current_tools[-1]["name"]
                 
-                send_progress(
-                    self.state,
-                    self.node_name,
-                    "failed",
-                    f"❌ 工具 **{tool_name}** 执行失败: {str(error)}",
-                    0.0,
-                    {
-                        "action": "tool_error",
-                        "tool_name": tool_name,
-                        "error": str(error)
-                    }
+                send_tool_message(
+                    state=self.state,
+                    action="error",
+                    tool_name=tool_name,
+                    message=f"❌ 工具 **{tool_name}** 执行失败: {str(error)}",
+                    error=str(error)
                 )
                 
         except Exception as e:
@@ -207,13 +192,13 @@ class ToolCallMonitor(BaseCallbackHandler):
     def on_agent_finish(self, finish: AgentFinish, **kwargs: Any) -> Any:
         """Agent完成时触发"""
         try:
-            send_progress(
-                self.state,
-                self.node_name,
-                "completed",
-                f"🤖 Agent完成任务，共使用 {len(self.current_tools)} 个工具",
-                1.0,
-                {
+            send_node_message(
+                state=self.state,
+                node_name=self.node_name,
+                status="completed",
+                message=f"🤖 Agent完成任务，共使用 {len(self.current_tools)} 个工具",
+                progress=1.0,
+                extra_data={
                     "action": "agent_finish",
                     "tools_used": len(self.current_tools)
                 }
@@ -310,13 +295,13 @@ class EnhancedToolMonitor(ToolCallMonitor):
             if self.enable_detailed_logging and action.log:
                 reasoning = self._extract_reasoning(action.log)
                 if reasoning and reasoning != "无推理信息":
-                    send_progress(
-                        self.state,
-                        self.node_name,
-                        "processing",
-                        f"💭 推理: {reasoning}",
-                        0.0,
-                        {
+                    send_node_message(
+                        state=self.state,
+                        node_name=self.node_name,
+                        status="processing",
+                        message=f"💭 推理: {reasoning}",
+                        progress=0.0,
+                        extra_data={
                             "action": "tool_reasoning",
                             "tool_name": action.tool,
                             "reasoning": reasoning
@@ -375,13 +360,13 @@ class EnhancedToolMonitor(ToolCallMonitor):
             stats = self.execution_stats
             success_rate = (stats["successful_tools"] / stats["total_tools"] * 100) if stats["total_tools"] > 0 else 0
             
-            send_progress(
-                self.state,
-                self.node_name,
-                "completed",
-                f"📊 任务完成! 成功率: {success_rate:.1f}% ({stats['successful_tools']}/{stats['total_tools']})",
-                1.0,
-                {
+            send_node_message(
+                state=self.state,
+                node_name=self.node_name,
+                status="completed",
+                message=f"📊 任务完成! 成功率: {success_rate:.1f}% ({stats['successful_tools']}/{stats['total_tools']})",
+                progress=1.0,
+                extra_data={
                     "action": "execution_summary",
                     "stats": stats,
                     "success_rate": round(success_rate, 1)

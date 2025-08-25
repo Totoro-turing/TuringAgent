@@ -10,7 +10,7 @@ from typing import Dict, Any
 from langchain.schema.messages import AIMessage
 
 from src.graph.tools.adb_tools import update_adb_notebook, detect_code_language
-from src.graph.utils.progress import send_node_start, send_node_processing, send_node_completed, send_node_failed
+from src.graph.utils.message_sender import send_node_message
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ async def edw_adb_update_node(state: Dict[str, Any]) -> Dict[str, Any]:
         更新后的状态
     """
     # 🎯 发送节点开始进度
-    send_node_start(state, "adb_update", "开始更新ADB笔记本...")
+    send_node_message(state, "adb_update", "started", "开始更新ADB笔记本...")
     
     try:
         # 提取状态中的信息
@@ -38,13 +38,13 @@ async def edw_adb_update_node(state: Dict[str, Any]) -> Dict[str, Any]:
         table_name = state.get("table_name")
         
         # 🎯 发送验证进度
-        send_node_processing(state, "adb_update", "验证ADB更新参数...", 0.1)
+        send_node_message(state, "adb_update", "processing", "验证ADB更新参数...", 0.1)
         
         # 验证必要参数
         if not adb_code_path:
             error_msg = "缺少ADB代码路径"
             logger.error(error_msg)
-            send_node_failed(state, "adb_update", error_msg)
+            send_node_message(state, "adb_update", "failed", f"错误: {error_msg}", 0.0)
             return {
                 "messages": [AIMessage(content=f"ADB更新跳过: {error_msg}")],
                 "error_message": error_msg,
@@ -54,7 +54,7 @@ async def edw_adb_update_node(state: Dict[str, Any]) -> Dict[str, Any]:
         if not enhanced_code:
             error_msg = "缺少增强后的代码"
             logger.error(error_msg)
-            send_node_failed(state, "adb_update", error_msg)
+            send_node_message(state, "adb_update", "failed", f"错误: {error_msg}", 0.0)
             return {
                 "messages": [AIMessage(content=f"ADB更新跳过: {error_msg}")],
                 "error_message": error_msg,
@@ -62,14 +62,14 @@ async def edw_adb_update_node(state: Dict[str, Any]) -> Dict[str, Any]:
             }
         
         # 🎯 发送检测进度
-        send_node_processing(state, "adb_update", "检测代码语言和准备更新...", 0.3)
+        send_node_message(state, "adb_update", "processing", "检测代码语言和准备更新...", 0.3)
         
         # 检测代码语言
         language = detect_code_language(code_path or adb_code_path, source_code)
         logger.info(f"检测到代码语言: {language}")
         
         # 🎯 发送更新进度
-        send_node_processing(state, "adb_update", f"正在更新ADB笔记本: {adb_code_path}", 0.7)
+        send_node_message(state, "adb_update", "processing", f"正在更新ADB笔记本: {adb_code_path}", 0.7)
         
         # 异步执行ADB更新
         update_result = await update_adb_notebook(
@@ -83,11 +83,13 @@ async def edw_adb_update_node(state: Dict[str, Any]) -> Dict[str, Any]:
             logger.info(f"ADB笔记本更新成功: {adb_code_path}")
             
             # 🎯 发送成功进度
-            send_node_completed(
+            send_node_message(
                 state, 
                 "adb_update", 
+                "completed",
                 f"成功更新ADB笔记本: {adb_code_path}",
-                extra_data={
+                1.0,
+                {
                     "adb_path": adb_code_path,
                     "language": language,
                     "table_name": table_name
@@ -116,7 +118,7 @@ async def edw_adb_update_node(state: Dict[str, Any]) -> Dict[str, Any]:
             error_msg = update_result.get("error", "未知错误")
             logger.error(f"ADB更新失败: {error_msg}")
             # 🎯 发送失败进度
-            send_node_failed(state, "adb_update", error_msg)
+            send_node_message(state, "adb_update", "failed", f"错误: {error_msg}", 0.0)
             return {
                 "messages": [AIMessage(content=f"ADB更新失败: {error_msg}")],
                 "error_message": error_msg,
@@ -128,7 +130,7 @@ async def edw_adb_update_node(state: Dict[str, Any]) -> Dict[str, Any]:
         error_msg = f"ADB更新节点处理失败: {str(e)}"
         logger.error(error_msg)
         # 🎯 发送异常失败进度
-        send_node_failed(state, "adb_update", error_msg)
+        send_node_message(state, "adb_update", "failed", f"错误: {error_msg}", 0.0)
         return {
             "messages": [AIMessage(content=f"ADB节点处理失败: {str(e)}")],
             "error_message": error_msg,

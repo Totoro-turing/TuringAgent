@@ -21,38 +21,14 @@ valid_agent = get_validation_agent()
 parser = get_shared_parser()
 
 
-def send_validation_progress(state: EDWState, node: str, status: str, message: str, progress: float):
-    """通用的验证进度发送函数 - 通过全局socket管理器"""
-    session_id = state.get("session_id", "unknown")
-
-    # 🎯 通过全局socket管理器获取socket队列
-    socket_queue = get_session_socket(session_id)
-
-    # 🎯 Socket直接发送（主要方案）
-    if socket_queue:
-        try:
-            socket_queue.send_message(
-                session_id,
-                "validation_progress",
-                {
-                    "node": node,
-                    "status": status,
-                    "message": message,
-                    "progress": progress
-                }
-            )
-            logger.debug(f"✅ Socket进度发送成功: {node} - {status} - {message}")
-        except Exception as e:
-            logger.warning(f"Socket进度发送失败: {e}")
-    else:
-        logger.warning(f"Socket队列不存在，无法发送进度: {node} - {message}")
+from src.graph.utils.message_sender import send_node_message
 
 
 def parse_user_input_node(state: EDWState) -> dict:
     """节点1: 解析用户输入，提取关键信息 - 支持智能路由"""
 
     # 🎯 实时进度发送 - 开始解析
-    send_validation_progress(state, "parse_input", "processing", "正在解析用户输入，提取关键信息...", 0.1)
+    send_node_message(state, "AI", "processing", "让我识别下用户输入，提取关键信息...", 0.1)
 
     # 检查是否是从中断恢复
     failed_node = state.get("failed_validation_node")
@@ -113,7 +89,7 @@ def parse_user_input_node(state: EDWState) -> dict:
             parsed_data = parsed_request.model_dump()
 
             # 🎯 实时进度发送 - 解析成功
-            send_validation_progress(state, "parse_input", "completed", "用户输入解析完成", 0.2)
+            send_node_message(state, "AI", "completed", "已经成功收集到用户输入的信息...", 0.2)
 
             result = {
                 "validation_status": "processing",
@@ -156,7 +132,7 @@ def parse_user_input_node(state: EDWState) -> dict:
             logger.error(f"解析错误: {str(parse_error)}. 原始响应: {validation_result}")
 
             # 🎯 实时进度发送 - 解析失败
-            send_validation_progress(state, "parse_input", "failed", "用户输入解析失败", 0.2)
+            send_node_message(state, "parse_input", "failed", "用户输入解析失败", 0.2)
 
             result = {
                 "validation_status": "incomplete_info",
@@ -172,7 +148,7 @@ def parse_user_input_node(state: EDWState) -> dict:
         logger.error(error_msg)
 
         # 🎯 实时进度发送 - 系统错误
-        send_validation_progress(state, "parse_input", "failed", "系统错误，解析失败", 0.2)
+        send_node_message(state, "parse_input", "failed", "系统错误，解析失败", 0.2)
 
         result = {
             "validation_status": "incomplete_info",
@@ -184,11 +160,11 @@ def parse_user_input_node(state: EDWState) -> dict:
         return result
 
 
-def validate_model_name_node(state: EDWState) -> dict:
+async def validate_model_name_node(state: EDWState) -> dict:
     """节点2: 验证英文模型名称格式"""
 
     # 🎯 实时进度发送 - 开始验证名称
-    send_validation_progress(state, "validate_name", "processing", "正在验证模型名称格式...", 0.3)
+    send_node_message(state, "AI", "processing", "让我继续验证模型名称合法性...", 0.3)
 
     # 导入验证函数
     from src.graph.utils.field import validate_english_model_name
@@ -201,7 +177,6 @@ def validate_model_name_node(state: EDWState) -> dict:
     # 优先级1: 如果有表名，总是优先尝试从表注释中提取（不管用户是否已提供）
     if table_name:
         try:
-            import asyncio
             from src.mcp.mcp_client import execute_sql_via_mcp
 
             # 解析表名：分离schema和table_name
@@ -219,8 +194,8 @@ def validate_model_name_node(state: EDWState) -> dict:
             WHERE table_schema = '{table_schema}' AND table_name = '{actual_table_name}'
             """
 
-            # 使用 asyncio 执行异步函数
-            comment_result = asyncio.run(execute_sql_via_mcp(comment_sql))
+            # 使用 await 执行异步函数
+            comment_result = await execute_sql_via_mcp(comment_sql)
 
             if comment_result and "错误" not in comment_result:
                 # 解析MCP返回的查询结果格式（第一行是列名，第二行是值）
@@ -247,7 +222,7 @@ def validate_model_name_node(state: EDWState) -> dict:
                         logger.info(f"从表注释中提取到模型名称: {model_attribute_name}")
 
                         # 🎯 实时进度发送 - 提取成功
-                        send_validation_progress(state, "validate_name", "processing", f"从表注释中提取到模型名称: {model_attribute_name}", 0.35)
+                        send_node_message(state, "validate_name", "processing", f"从表注释中提取到模型名称: {model_attribute_name}", 0.35)
 
         except Exception as e:
             logger.error(f"尝试从表注释提取模型名称时出错: {e}")
@@ -259,7 +234,7 @@ def validate_model_name_node(state: EDWState) -> dict:
             logger.info(f"使用用户提供的模型名称: {model_attribute_name}")
 
             # 🎯 实时进度发送 - 使用用户输入
-            send_validation_progress(state, "validate_name", "processing", f"使用用户提供的模型名称: {model_attribute_name}", 0.35)
+            send_node_message(state, "validate_name", "processing", f"使用用户提供的模型名称: {model_attribute_name}", 0.35)
 
     else:
         # 没有表名，直接使用用户输入的模型名称
@@ -279,7 +254,7 @@ def validate_model_name_node(state: EDWState) -> dict:
             error_msg = f"缺少表名和模型名称信息。\n\n请提供模型的英文名称，例如：\n- Finance Invoice Header\n- Customer Order Detail\n- Inventory Management System"
 
         # 🎯 实时进度发送 - 提取失败
-        send_validation_progress(state, "validate_name", "failed", "无法获取有效的模型名称", 0.4)
+        send_node_message(state, "validate_name", "failed", "无法获取有效的模型名称", 0.4)
 
         return {
             "validation_status": "incomplete_info",
@@ -299,7 +274,7 @@ def validate_model_name_node(state: EDWState) -> dict:
             error_msg = f"模型名称格式不正确：{name_error}\n\n请使用标准的英文格式，例如：\n- Finance Invoice Header\n- Customer Order Detail\n- Inventory Management System"
 
         # 🎯 实时进度发送 - 格式验证失败
-        send_validation_progress(state, "validate_name", "failed", "模型名称格式验证失败", 0.4)
+        send_node_message(state, "validate_name", "failed", "模型名称格式验证失败", 0.4)
 
         return {
             "validation_status": "incomplete_info",
@@ -309,7 +284,7 @@ def validate_model_name_node(state: EDWState) -> dict:
         }
 
     # 🎯 实时进度发送 - 验证通过
-    send_validation_progress(state, "validate_name", "completed", "模型名称验证通过", 0.4)
+    send_node_message(state, "validate_name", "completed", "模型名称验证通过", 0.4)
 
     result = {
         "validation_status": "processing",
@@ -333,7 +308,7 @@ def validate_completeness_node(state: EDWState) -> dict:
     """节点3: 验证信息完整性"""
 
     # 🎯 实时进度发送 - 开始验证完整性
-    send_validation_progress(state, "validate_completeness", "processing", "正在验证信息完整性...", 0.5)
+    send_node_message(state, "validate_completeness", "processing", "正在验证auto dev信息完整性...", 0.5)
 
     try:
         # 🔥 直接从 state 获取最新数据，而不是从 parsed_request
@@ -382,7 +357,7 @@ def validate_completeness_node(state: EDWState) -> dict:
             complete_message = f"为了帮您完成模型增强，我需要以下信息：\n{missing_info_text}\n\n请补充完整信息后重新提交。"
 
             # 🎯 实时进度发送 - 信息不完整
-            send_validation_progress(state, "validate_completeness", "failed", "信息不完整，需要补充", 0.6)
+            send_node_message(state, "validate_completeness", "failed", "dev所需信息不完整，需要补充", 0.6)
 
             return {
                 "validation_status": "incomplete_info",
@@ -393,7 +368,7 @@ def validate_completeness_node(state: EDWState) -> dict:
             }
 
         # 🎯 实时进度发送 - 验证通过
-        send_validation_progress(state, "validate_completeness", "completed", "信息完整性验证通过", 0.6)
+        send_node_message(state, "validate_completeness", "completed", "dev信息完整性验证通过", 0.6)
 
         return {
             "validation_status": "processing",
@@ -408,7 +383,7 @@ def validate_completeness_node(state: EDWState) -> dict:
         logger.error(error_msg)
 
         # 🎯 实时进度发送 - 系统错误
-        send_validation_progress(state, "validate_completeness", "failed", "系统错误，完整性验证失败", 0.6)
+        send_node_message(state, "validate_completeness", "failed", "系统错误，完整性验证失败", 0.6)
 
         return {
             "validation_status": "incomplete_info",
@@ -428,13 +403,13 @@ def search_table_code_node(state: EDWState) -> dict:
     branch_name = state.get("branch_name", "").strip()
 
     # 🎯 实时进度发送 - 开始查询（修复：移动到变量定义之后）
-    send_validation_progress(state, "search_code", "processing", f"正在GitHub中查询 **{table_name}** 表的加工代码...", 0.7)
+    send_node_message(state, "AI", "processing", f"正在GitHub中查询 **{table_name}** 的逻辑代码...", 0.7)
 
     if not table_name:
         error_msg = "表名为空，无法查询源代码"
 
         # 🎯 实时进度发送 - 表名为空错误
-        send_validation_progress(state, "search_code", "failed", "表名为空，无法查询源代码", 0.8)
+        send_node_message(state, "AI", "failed", "表名为空，无法查询源代码", 0.8)
 
         return {
             "validation_status": "incomplete_info",
@@ -447,7 +422,7 @@ def search_table_code_node(state: EDWState) -> dict:
         error_msg = "分支名称为空，无法查询源代码"
 
         # 🎯 实时进度发送 - 分支名为空错误
-        send_validation_progress(state, "search_code", "failed", "分支名称为空，无法查询源代码", 0.8)
+        send_node_message(state, "AI", "failed", "分支名称为空，无法查询源代码", 0.8)
 
         return {
             "validation_status": "incomplete_info",
@@ -466,7 +441,7 @@ def search_table_code_node(state: EDWState) -> dict:
             error_msg = f"在分支 {branch_name} 中未找到表 {table_name} 的源代码: {code_info.get('message', '未知错误')}\n请确认表名和分支名称是否正确。"
 
             # 🎯 实时进度发送 - 查询失败
-            send_validation_progress(state, "search_code", "failed", f"未找到表 {table_name} 的源代码", 0.8)
+            send_node_message(state, "AI", "failed", f"未找到表 {table_name} 的源代码", 0.8)
 
             return {
                 "validation_status": "incomplete_info",
@@ -487,7 +462,7 @@ def search_table_code_node(state: EDWState) -> dict:
         logger.info(f"从源代码中提取到底表: {base_tables}")
 
         # 🎯 实时进度发送 - 查询成功
-        send_validation_progress(state, "search_code", "completed", f"成功获取表 {table_name} 的源代码", 0.8)
+        send_node_message(state, "AI", "completed", f"成功获取表 {table_name} 的源代码", 0.8)
 
         # 🎯 Socket发送原始源代码到前端展示
         session_id = state.get("session_id", "unknown")
@@ -538,7 +513,7 @@ def search_table_code_node(state: EDWState) -> dict:
         logger.error(error_msg)
 
         # 🎯 实时进度发送 - 系统错误
-        send_validation_progress(state, "search_code", "failed", "系统错误，代码查询失败", 0.8)
+        send_node_message(state, "search_code", "failed", "系统错误，代码查询失败", 0.8)
 
         return {
             "validation_status": "incomplete_info",
@@ -552,7 +527,7 @@ async def validate_field_base_tables_node(state: EDWState) -> dict:
     """节点5: 验证字段与底表的关联性"""
 
     # 🎯 实时进度发送 - 开始验证字段
-    send_validation_progress(state, "validate_fields", "processing", "正在验证字段与底表的关联性...", 0.9)
+    send_node_message(state, "validate_fields", "processing", "正在验证字段与底表的关联性...", 0.9)
 
     # 导入需要的函数
     from src.graph.utils.field import validate_fields_against_base_tables
@@ -564,7 +539,7 @@ async def validate_field_base_tables_node(state: EDWState) -> dict:
     # 如果没有底表或字段，跳过验证
     if not base_tables or not fields:
         logger.info("未找到底表或新增字段为空，跳过字段验证")
-        send_validation_progress(state, "validate_fields", "completed", "字段验证通过", 1.0)
+        send_node_message(state, "validate_fields", "completed", "字段验证通过", 1.0)
         return {
             "validation_status": "completed",
             "session_state": "validation_completed",
@@ -633,7 +608,7 @@ async def validate_field_base_tables_node(state: EDWState) -> dict:
 请确认字段名称是否正确，或参考建议字段进行修正。"""
 
             # 字段验证失败
-            send_validation_progress(state, "validate_fields", "failed", "字段验证失败", 1.0)
+            send_node_message(state, "validate_fields", "failed", "字段验证失败", 1.0)
 
             return {
                 "validation_status": "incomplete_info",
@@ -644,7 +619,7 @@ async def validate_field_base_tables_node(state: EDWState) -> dict:
             }
         else:
             # 字段验证通过
-            send_validation_progress(state, "validate_fields", "completed", "字段验证通过", 1.0)
+            send_node_message(state, "validate_fields", "completed", "字段验证通过", 1.0)
 
             return {
                 "validation_status": "completed",
@@ -661,7 +636,7 @@ async def validate_field_base_tables_node(state: EDWState) -> dict:
         logger.error(error_msg)
 
         # 🎯 实时进度发送 - 系统错误
-        send_validation_progress(state, "validate_fields", "failed", "系统错误，字段验证失败", 1.0)
+        send_node_message(state, "validate_fields", "failed", "系统错误，字段验证失败", 1.0)
 
         return {
             "validation_status": "incomplete_info",
@@ -728,6 +703,7 @@ async def field_standardization_node_wrapper(state: EDWState) -> dict:
     """字段标准化节点包装器"""
     try:
         # 直接调用原始的异步函数
+        send_node_message(state, "standard_node", "processing", f"正在标准化属性名称为物理名称...", 0.7)
         return await field_standardization_node(state)
     except Exception as e:
         logger.error(f"字段标准化节点执行失败: {e}")

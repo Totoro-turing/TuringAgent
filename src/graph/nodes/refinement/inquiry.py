@@ -5,6 +5,8 @@
 
 import logging
 from langgraph.types import interrupt
+
+from src.graph.utils.message_sender import send_node_message
 from src.models.states import EDWState
 from src.graph.contextual_prompt import generate_contextual_prompt
 
@@ -19,7 +21,7 @@ def refinement_context_node(state: EDWState):
     user_id = state.get("user_id", "")
     
     logger.info(f"生成微调询问的上下文提示，表: {table_name}")
-    
+    send_node_message(state, "AI", "processing", "我需要总结一下本次增强结果...", 0.1)
     # 生成上下文感知的提示
     contextual_prompt = generate_contextual_prompt(state, "code_refinement")
     

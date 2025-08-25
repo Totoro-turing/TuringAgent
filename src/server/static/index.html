@@ -750,6 +750,11 @@
             contain: layout style !important;
             z-index: 10 !important;
         }
+        
+        /* 为包含tooltip的agent消息创建overflow例外 */
+        .message.agent.has-tooltip-container {
+            overflow: visible !important;
+        }
 
         /* Agent消息悬停效果 */
         .message.agent:hover {
@@ -3278,6 +3283,62 @@
             flex: 1;
             min-height: 0;
         }
+        
+        /* 工具参数悬停显示样式 - 优化版 */
+        /* 移除CSS hover控制，改用JavaScript控制 */
+
+        .thinking-step-entry.has-tooltip {
+            position: relative;
+        }
+
+        .tool-params-tooltip {
+            position: fixed;
+            /* JavaScript会动态设置top, left */
+            min-width: 450px;
+            max-width: 650px;
+            background: rgba(15, 15, 25, 0.98);
+            border: 2px solid rgba(124, 58, 237, 0.9);
+            border-radius: 16px;
+            padding: 20px;
+            display: none;
+            z-index: 99999;
+            max-height: 450px;
+            overflow-y: auto;
+            box-shadow: 
+                0 12px 48px rgba(0, 0, 0, 0.6),
+                0 0 0 1px rgba(124, 58, 237, 0.2);
+            backdrop-filter: blur(20px);
+            font-size: 13px;
+            color: #e2e8f0;
+            opacity: 0;
+            transform: translateY(10px) scale(0.95);
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            /* 确保鼠标可以移到tooltip上而不丢失hover */
+            pointer-events: auto;
+            /* 防止溢出屏幕边界 */
+            max-width: calc(100vw - 40px);
+        }
+        
+        /* tooltip显示状态 */
+        .tool-params-tooltip.show {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+        
+        /* 提升触发区域的稳定性 */
+        .thinking-step-entry.has-tooltip {
+            padding: 2px 0;
+        }
+        
+        /* 参数标记样式（现在直接在HTML中） */
+        .param-indicator {
+            transition: all 0.2s ease;
+        }
+        
+        .param-indicator:hover {
+            color: #c084fc !important;
+            transform: scale(1.1);
+        }
     </style>
 </head>
 <body>
@@ -3687,6 +3748,9 @@
                 clearTimeout(this.thinkingState.timeout);
             }
             
+            // 清理所有相关的tooltip
+            this.cleanupTooltips();
+            
             // 移除思考框DOM
             const thinkingBox = document.getElementById(this.thinkingState.messageId);
             if (thinkingBox) {
@@ -3709,6 +3773,22 @@
             thinkingBoxVisible = false;
             currentThinkingMessageId = null;
             thinkingSteps.clear();
+        }
+        
+        /**
+         * 清理所有tooltip元素
+         */
+        cleanupTooltips() {
+            const tooltips = document.querySelectorAll('.tool-params-tooltip');
+            tooltips.forEach(tooltip => {
+                tooltip.remove();
+            });
+            
+            // 清理has-tooltip-container标记
+            const containers = document.querySelectorAll('.message.agent.has-tooltip-container');
+            containers.forEach(container => {
+                container.classList.remove('has-tooltip-container');
+            });
         }
         
         /**
@@ -3755,57 +3835,125 @@
                     <span class="step-time" style="color: #94a3b8; margin-right: 8px;">[${timestamp}]</span>
                     <span class="step-icon" style="margin-right: 6px;">${statusIcon}</span>
                     <span class="step-text">${message || stepId}</span>
-                    ${hoverData ? '<span style="margin-left: 4px; color: #a855f7; font-size: 11px;">[参数]</span>' : ''}
+                    ${hoverData ? '<span class="param-indicator" style="margin-left: 6px; color: #a855f7; font-size: 11px; font-weight: bold; cursor: help; opacity: 0.9;">[参数]</span>' : ''}
                 `;
                 
                 // 如果有悬停数据，添加悬停显示逻辑
                 if (hoverData) {
                     const tooltipDiv = document.createElement('div');
                     tooltipDiv.className = 'tool-params-tooltip';
-                    tooltipDiv.style.cssText = `
-                        position: absolute;
-                        bottom: 100%;
-                        left: 0;
-                        right: 0;
-                        background: rgba(30, 30, 30, 0.98);
-                        border: 1px solid rgba(124, 58, 237, 0.5);
-                        border-radius: 8px;
-                        padding: 12px;
-                        margin-bottom: 4px;
-                        display: none;
-                        z-index: 1000;
-                        max-height: 300px;
-                        overflow-y: auto;
-                        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-                        backdrop-filter: blur(10px);
-                    `;
                     
                     // 格式化参数显示
-                    let paramsHtml = '<div style="font-size: 12px; color: #e2e8f0;">';
-                    paramsHtml += '<div style="margin-bottom: 8px; color: #a855f7; font-weight: 600;">工具参数：</div>';
+                    let paramsHtml = '<div>';
+                    paramsHtml += '<div style="margin-bottom: 12px; color: #a855f7; font-weight: 600; font-size: 14px; border-bottom: 1px solid rgba(124, 58, 237, 0.3); padding-bottom: 8px;">🔧 工具参数</div>';
                     
                     if (typeof hoverData === 'object') {
                         for (const [key, value] of Object.entries(hoverData)) {
-                            const displayValue = typeof value === 'string' && value.length > 200 
-                                ? value.substring(0, 200) + '...' 
+                            const displayValue = typeof value === 'string' && value.length > 300 
+                                ? value.substring(0, 300) + '...' 
                                 : JSON.stringify(value, null, 2);
                             paramsHtml += `
-                                <div style="margin-bottom: 6px;">
-                                    <span style="color: #60a5fa;">${key}:</span>
-                                    <pre style="margin: 2px 0; padding: 4px; background: rgba(0,0,0,0.3); border-radius: 4px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; font-size: 11px;">${displayValue}</pre>
+                                <div style="margin-bottom: 10px;">
+                                    <div style="color: #60a5fa; font-weight: 500; margin-bottom: 4px;">${key}:</div>
+                                    <pre style="margin: 0; padding: 8px; background: rgba(0,0,0,0.4); border-radius: 6px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; font-size: 12px; border-left: 3px solid #a855f7;">${displayValue}</pre>
                                 </div>
                             `;
                         }
                     } else {
-                        paramsHtml += `<pre style="white-space: pre-wrap; word-break: break-all;">${hoverData}</pre>`;
+                        paramsHtml += `<pre style="white-space: pre-wrap; word-break: break-all; padding: 8px; background: rgba(0,0,0,0.4); border-radius: 6px; border-left: 3px solid #a855f7;">${hoverData}</pre>`;
                     }
                     paramsHtml += '</div>';
                     
                     tooltipDiv.innerHTML = paramsHtml;
-                    stepEntry.appendChild(tooltipDiv);
+                    // 添加到body，避免容器限制
+                    document.body.appendChild(tooltipDiv);
                     
-                    // CSS :hover伪类会自动处理显示/隐藏，不需要JavaScript事件
-                    // 添加一个标记class以便CSS识别带参数的条目
+                    // 直接在这里设置事件监听器，避免this上下文问题
+                    let showTimeout;
+                    let hideTimeout;
+                    
+                    console.log('🔗 直接绑定tooltip事件到stepEntry:', stepEntry);
+                    
+                    // 获取[参数]标记元素
+                    const paramIndicator = stepEntry.querySelector('.param-indicator');
+                    const targetElement = paramIndicator || stepEntry; // 优先绑定到[参数]标记
+                    
+                    console.log('🎯 事件绑定目标元素:', targetElement);
+                    
+                    // 鼠标进入时显示tooltip
+                    targetElement.addEventListener('mouseenter', (e) => {
+                        console.log('🐭 鼠标进入，准备显示tooltip');
+                        clearTimeout(hideTimeout);
+                        showTimeout = setTimeout(() => {
+                            console.log('⏰ 开始显示tooltip');
+                            
+                            // 获取元素位置
+                            const rect = targetElement.getBoundingClientRect();
+                            console.log('📏 目标元素位置:', rect);
+                            
+                            // 先显示tooltip以获取尺寸
+                            tooltipDiv.style.display = 'block';
+                            tooltipDiv.style.opacity = '0';
+                            const tooltipRect = tooltipDiv.getBoundingClientRect();
+                            
+                            // 计算位置（显示在上方）
+                            let top = rect.top - tooltipRect.height - 10;
+                            let left = rect.left + (rect.width / 2) - (tooltipRect.width / 2);
+                            
+                            // 边界检查
+                            if (top < 20) top = rect.bottom + 10;
+                            if (left < 20) left = 20;
+                            if (left + tooltipRect.width > window.innerWidth - 20) {
+                                left = window.innerWidth - tooltipRect.width - 20;
+                            }
+                            
+                            // 设置位置
+                            tooltipDiv.style.top = top + 'px';
+                            tooltipDiv.style.left = left + 'px';
+                            
+                            console.log('📍 tooltip位置:', { top, left });
+                            
+                            // 显示动画
+                            setTimeout(() => {
+                                tooltipDiv.classList.add('show');
+                                console.log('✨ tooltip显示动画已触发');
+                            }, 10);
+                            
+                        }, 200);
+                    });
+                    
+                    // 鼠标离开时隐藏tooltip
+                    targetElement.addEventListener('mouseleave', (e) => {
+                        console.log('🐭 鼠标离开，准备隐藏tooltip');
+                        clearTimeout(showTimeout);
+                        hideTimeout = setTimeout(() => {
+                            tooltipDiv.classList.remove('show');
+                            setTimeout(() => {
+                                tooltipDiv.style.display = 'none';
+                                console.log('💨 tooltip已隐藏');
+                            }, 250);
+                        }, 300);
+                    });
+                    
+                    // 鼠标进入tooltip时保持显示
+                    tooltipDiv.addEventListener('mouseenter', () => {
+                        console.log('🐭 鼠标进入tooltip，保持显示');
+                        clearTimeout(hideTimeout);
+                    });
+                    
+                    // 鼠标离开tooltip时隐藏
+                    tooltipDiv.addEventListener('mouseleave', () => {
+                        console.log('🐭 鼠标离开tooltip，立即隐藏');
+                        tooltipDiv.classList.remove('show');
+                        setTimeout(() => tooltipDiv.style.display = 'none', 250);
+                    });
+                    
+                    // 标记此容器包含tooltip，触发overflow例外
+                    const agentMessage = stepEntry.closest('.message.agent');
+                    if (agentMessage) {
+                        agentMessage.classList.add('has-tooltip-container');
+                    }
+                    
                     stepEntry.classList.add('has-tooltip');
                 }
                 
@@ -3821,6 +3969,114 @@
                 // 滚动到最新内容
                 detailText.scrollTop = detailText.scrollHeight;
             }
+        }
+        
+        /**
+         * 设置tooltip事件处理器
+         */
+        setupTooltipEvents(stepEntry, tooltipDiv) {
+            let showTimeout;
+            let hideTimeout;
+            
+            console.log('🔗 绑定tooltip事件监听器:', stepEntry, tooltipDiv);
+            
+            // 鼠标进入stepEntry时显示tooltip
+            stepEntry.addEventListener('mouseenter', (e) => {
+                console.log('🐭 鼠标进入stepEntry，准备显示tooltip');
+                clearTimeout(hideTimeout);
+                showTimeout = setTimeout(() => {
+                    console.log('⏰ 延迟时间到，显示tooltip');
+                    this.showTooltip(stepEntry, tooltipDiv);
+                }, 200); // 200ms延迟显示
+            });
+            
+            // 鼠标离开stepEntry时隐藏tooltip（但有延迟）
+            stepEntry.addEventListener('mouseleave', (e) => {
+                console.log('🐭 鼠标离开stepEntry，准备隐藏tooltip');
+                clearTimeout(showTimeout);
+                hideTimeout = setTimeout(() => {
+                    console.log('⏰ 延迟时间到，隐藏tooltip');
+                    this.hideTooltip(tooltipDiv);
+                }, 300);
+            });
+            
+            // 鼠标进入tooltip时保持显示
+            tooltipDiv.addEventListener('mouseenter', () => {
+                console.log('🐭 鼠标进入tooltip，保持显示');
+                clearTimeout(hideTimeout);
+            });
+            
+            // 鼠标离开tooltip时隐藏
+            tooltipDiv.addEventListener('mouseleave', () => {
+                console.log('🐭 鼠标离开tooltip，立即隐藏');
+                this.hideTooltip(tooltipDiv);
+            });
+        }
+        
+        /**
+         * 显示tooltip并动态定位
+         */
+        showTooltip(stepEntry, tooltipDiv) {
+            console.log('📍 开始显示tooltip:', tooltipDiv);
+            
+            // 获取stepEntry的位置
+            const rect = stepEntry.getBoundingClientRect();
+            console.log('📏 stepEntry位置:', rect);
+            
+            // 先设置为可见但透明，以便获取真实尺寸
+            tooltipDiv.style.display = 'block';
+            tooltipDiv.style.opacity = '0';
+            tooltipDiv.style.transform = 'translateY(10px) scale(0.95)';
+            
+            // 获取tooltip的实际尺寸
+            const tooltipRect = tooltipDiv.getBoundingClientRect();
+            console.log('📏 tooltip尺寸:', tooltipRect);
+            
+            // 计算最佳显示位置
+            let top = rect.top - tooltipRect.height - 15; // 默认显示在上方
+            let left = rect.left + (rect.width / 2) - (tooltipRect.width / 2); // 居中对齐
+            
+            // 检查上方空间是否足够
+            if (top < 20) {
+                // 上方空间不够，显示在下方
+                top = rect.bottom + 15;
+                console.log('⬇️ 上方空间不足，显示在下方');
+            } else {
+                console.log('⬆️ 显示在上方');
+            }
+            
+            // 检查左右边界
+            if (left < 20) {
+                left = 20;
+                console.log('⬅️ 调整到左边界');
+            } else if (left + tooltipRect.width > window.innerWidth - 20) {
+                left = window.innerWidth - tooltipRect.width - 20;
+                console.log('➡️ 调整到右边界');
+            }
+            
+            console.log('📍 最终位置:', { top, left });
+            
+            // 设置最终位置
+            tooltipDiv.style.top = top + 'px';
+            tooltipDiv.style.left = left + 'px';
+            
+            // 显示动画
+            setTimeout(() => {
+                console.log('✨ 触发显示动画');
+                tooltipDiv.classList.add('show');
+            }, 10);
+        }
+        
+        /**
+         * 隐藏tooltip
+         */
+        hideTooltip(tooltipDiv) {
+            console.log('🙈 隐藏tooltip:', tooltipDiv);
+            tooltipDiv.classList.remove('show');
+            setTimeout(() => {
+                tooltipDiv.style.display = 'none';
+                console.log('💨 tooltip已完全隐藏');
+            }, 250); // 等待动画完成
         }
         
         /**
@@ -5678,7 +5934,7 @@
 
             // 添加思考完成步骤，但不隐藏思考框，让用户看到完整思考过程
             if (thinkingBoxVisible) {
-                updateThinkingStep('final', 'processing', '正在生成回复...');
+                // updateThinkingStep('final', 'processing', '正在生成回复...');
                 console.log('🧠 保持思考框显示，直到stream响应完成');
             } else {
                 // 额外保护：如果此时思考框不可见，可能是因为workflow_start消息还未到达
@@ -6164,8 +6420,46 @@ ${improvements}
             updateSessionInfo();
         }
 
+        // 🔍 添加通用调试日志验证消息结构
+        console.log('🔍 完整消息结构:', {
+            type: data.type,
+            hasData: !!data.data,
+            dataKeys: data.data ? Object.keys(data.data) : [],
+            dataPreview: data.data ? JSON.stringify(data.data).substring(0, 200) + '...' : 'null'
+        });
+
         // 根据消息类型进行处理
         switch (data.type) {
+            // 新的统一消息类型处理
+            case 'TOOL_MESSAGE':
+                console.log('🛠️ 收到工具消息:', data);
+                console.log('🔍 TOOL_MESSAGE data.data:', data.data); // 调试日志
+                // 检查是否启用悬停功能
+                if (data.data.show_on_hover && data.data.tool_input) {
+                    updateNodeStatusWithHoverData(data.data.tool_name, data.data.action, data.data.message, data.data.tool_input);
+                } else {
+                    updateNodeStatus(data.data.tool_name, data.data.action, data.data.message);
+                }
+                break;
+                
+            case 'NODE_MESSAGE':
+                console.log('📍 收到节点消息:', data);
+                console.log('🔍 NODE_MESSAGE data.data:', data.data); // 调试日志
+                updateNodeStatus(data.data.node, data.data.status, data.data.message);
+                break;
+                
+            case 'CODE_MESSAGE':
+                console.log('💾 收到代码消息:', data);
+                console.log('🔍 CODE_MESSAGE data.data:', data.data); // 调试日志
+                if (data.data.code_type === 'enhanced') {
+                    handleEnhancedCodeMessage(data.data);
+                } else if (data.data.code_type === 'review_report') {
+                    handleReviewReportMessage(data.data);
+                } else if (data.data.code_type === 'original') {
+                    handleOriginalCodeMessage(data.data);
+                }
+                break;
+            
             case 'page_switch':
                 console.log('🔄 收到页面切换消息:', data.data);
                 addAgentMessage('page-switch', '🔄', '页面切换', data.data.message || '正在切换页面...');
@@ -6181,17 +6475,27 @@ ${improvements}
 
             case 'node_progress':
                 console.log('🔄 收到节点进度消息:', data.data);
-                const progressData = data.data;
+                
+                // 调试：确认数据结构
+                console.log('🔍 data.data.data:', data.data.data);
+                console.log('🔍 data.data keys:', Object.keys(data.data));
+                
+                // 根据实际日志，数据在 data.data.data 中
+                const actualData = data.data.data || {};
+                console.log('🔍 实际数据:', actualData);
                 
                 // 检查是否是工具执行消息（带悬停参数）
-                if (progressData.action === 'tool_executing' && progressData.show_on_hover) {
+                if (actualData.action === 'tool_executing' && actualData.show_on_hover) {
                     console.log('🛠️ 检测到工具执行消息，使用悬停显示参数');
-                    const toolMessage = progressData.message;
-                    const toolInput = progressData.tool_input;
-                    updateNodeStatusWithHoverData(progressData.node, progressData.status, toolMessage, toolInput);
+                    updateNodeStatusWithHoverData(actualData.node, actualData.status, actualData.message, actualData.tool_input);
                 } else {
                     // 普通节点进度消息
-                    updateNodeStatus(progressData.node, progressData.status, progressData.message);
+                    console.log('🔍 传递给updateNodeStatus的参数:', {
+                        node: actualData.node,
+                        status: actualData.status, 
+                        message: actualData.message
+                    });
+                    updateNodeStatus(actualData.node, actualData.status, actualData.message);
                 }
                 break;
 
@@ -6277,6 +6581,26 @@ ${improvements}
             default:
                 console.warn('⚠️ 未知的实时消息类型:', data.type);
         }
+    }
+
+    // ===== 新的统一消息处理函数 =====
+    function handleEnhancedCodeMessage(data) {
+        console.log('🚀 处理增强代码消息:', data);
+        // 调用现有的displayEnhancedCode函数
+        displayEnhancedCode(data);
+    }
+    
+    function handleReviewReportMessage(data) {
+        console.log('📋 处理评审报告消息:', data);
+        // 可以扩展为专门的评审报告显示逻辑
+        // 目前先使用通用的进度更新
+        updateNodeStatus('code_review', 'completed', `代码评审完成，评分: ${data.score}分`);
+    }
+    
+    function handleOriginalCodeMessage(data) {
+        console.log('📄 处理原始代码消息:', data);
+        // 调用现有的displayOriginalCode函数
+        displayOriginalCode(data);
     }
 
     // ===== 工具监控消息处理 =====
@@ -7516,7 +7840,7 @@ def optimize_data_processing():
     function addThinkingCompleteStep() {
         if (!thinkingBoxVisible) return;
         
-        updateThinkingStep('final', 'completed', '分析完成，正在生成回复');
+        // updateThinkingStep('final', 'completed', '分析完成，正在生成回复');
         
         // 不再自动隐藏，让思考框持续显示直到stream响应完成
         console.log('🧠 思考分析完成，保持显示直到回复完成');

@@ -11,6 +11,11 @@ from langchain.schema.messages import HumanMessage, AIMessage, SystemMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import interrupt
 
+from src.graph.utils.message_sender import (
+    send_node_message,
+    send_tool_message,
+    send_code_message
+)
 from src.models.states import EDWState
 from src.agent.edw_agents import get_shared_llm, get_shared_checkpointer
 
@@ -67,24 +72,12 @@ def code_review_node(state: EDWState) -> dict:
 2. 只提取用户明确表达的需求，不要推测
 3. 用一段话简洁总结
 """
-        
+        send_node_message(state, "AI", "processing", "我需要对生成的代码进行review...", 0.1)
+
         user_original_request = ""
         try:
             # 🤖 发送需求理解开始消息
-            if socket_queue:
-                try:
-                    socket_queue.send_message(
-                        session_id,
-                        "tool_progress",
-                        {
-                            "action": "start",
-                            "tool_name": "requirement_analysis",
-                            "message": "📋 正在进行代码review."
-                        }
-                    )
-                except Exception as e:
-                    logger.debug(f"发送需求理解开始消息失败: {e}")
-            
+
             # 直接使用LLM，传入完整的消息历史作为上下文
             llm = get_shared_llm()
             import time
@@ -184,41 +177,27 @@ def code_review_node(state: EDWState) -> dict:
             enhanced_monitoring=True
         )
         
-        # 🤖 发送LLM调用开始消息
-        if socket_queue:
-            try:
-                socket_queue.send_message(
-                    session_id,
-                    "tool_progress",
-                    {
-                        "action": "start",
-                        "tool_name": "llm_invoke",
-                        "message": "🤖 正在调用AI模型评审代码质量..."
-                    }
-                )
-            except Exception as e:
-                logger.debug(f"发送LLM开始消息失败: {e}")
-        
+        # 🤖 发送LLM调用开始消息 - 使用统一接口
+        send_tool_message(
+            state=state,
+            action="start",
+            tool_name="llm_invoke",
+            message="🤖 正在调用AI模型评审代码质量..."
+        )
+
         import time
         start_time = time.time()
         response = llm.invoke(review_prompt)
         duration = time.time() - start_time
         
-        # 🤖 发送LLM调用完成消息
-        if socket_queue:
-            try:
-                socket_queue.send_message(
-                    session_id,
-                    "tool_progress",
-                    {
-                        "action": "complete",
-                        "tool_name": "llm_invoke",
-                        "duration": round(duration, 2),
-                        "message": f"✅ AI评审完成 ({round(duration, 2)}秒)"
-                    }
-                )
-            except Exception as e:
-                logger.debug(f"发送LLM完成消息失败: {e}")
+        # 🤖 发送LLM调用完成消息 - 使用统一接口
+        send_tool_message(
+            state=state,
+            action="complete",
+            tool_name="llm_invoke",
+            message=f"✅ AI评审完成 ({round(duration, 2)}秒)",
+            duration=round(duration, 2)
+        )
         review_result = _parse_review_response(response.content if hasattr(response, 'content') else str(response))
         
         # 更新review历史
@@ -234,32 +213,25 @@ def code_review_node(state: EDWState) -> dict:
         
         logger.info(f"代码Review完成 - 轮次: {review_round}, 评分: {review_result['score']}")
         
-        # 发送review报告到前端
-        session_id = state.get("session_id", "unknown")
-        from src.server.socket_manager import get_session_socket
-
-        socket_queue = get_session_socket(session_id)
-        if socket_queue:
-            try:
-                requirement_report = review_result.get("requirement_fulfillment_report", {})
-                socket_queue.send_message(
-                    session_id,
-                    "review_report",
-                    {
-                        "type": "review_report",
-                        "table_name": table_name,
-                        "review_round": review_round,
-                        "score": review_result["score"],
-                        "requirement_fulfilled": requirement_report.get("is_fulfilled", True),
-                        "fulfillment_score": requirement_report.get("fulfillment_score", 100),
-                        "missing_requirements": requirement_report.get("missing_requirements", []),
-                        "suggestions": review_result["suggestions"],
-                        "timestamp": datetime.now().isoformat()
-                    }
-                )
-                logger.info(f"✅ Socket发送review报告成功: {table_name}")
-            except Exception as e:
-                logger.warning(f"Socket发送review报告失败: {e}")
+        # 发送review报告到前端 - 使用统一接口
+        requirement_report = review_result.get("requirement_fulfillment_report", {})
+        success = send_code_message(
+            state=state,
+            code_type="review_report",
+            content="",  # review报告通过元数据传递
+            table_name=table_name,
+            review_round=review_round,
+            score=review_result["score"],
+            requirement_fulfilled=requirement_report.get("is_fulfilled", True),
+            fulfillment_score=requirement_report.get("fulfillment_score", 100),
+            missing_requirements=requirement_report.get("missing_requirements", []),
+            suggestions=review_result["suggestions"]
+        )
+        
+        if success:
+            logger.info(f"✅ 统一接口发送review报告成功: {table_name}")
+        else:
+            logger.warning(f"❌ 统一接口发送review报告失败: {table_name}")
         
         return {
             "review_score": review_result["score"],
@@ -302,6 +274,15 @@ async def code_regenerate_node(state: EDWState) -> dict:
         adb_code_path = state.get("adb_code_path", "")
         code_path = state.get("code_path", "")
         
+        # 🔍 调试：检查review结果是否存在于state中
+        logger.info(f"🔍 Review重新生成调试信息:")
+        logger.info(f"  - review_feedback存在: {bool(review_feedback)}, 长度: {len(review_feedback) if review_feedback else 0}")
+        logger.info(f"  - review_suggestions存在: {bool(review_suggestions)}, 数量: {len(review_suggestions) if review_suggestions else 0}")
+        if review_feedback:
+            logger.info(f"  - review_feedback前100字符: {review_feedback[:100]}...")
+        if review_suggestions:
+            logger.info(f"  - review_suggestions示例: {review_suggestions[:2]}")
+        
         # 检查是否因为需求不符而需要重新生成
         requirement_report = state.get("requirement_fulfillment_report", {})
         is_requirement_fulfilled = requirement_report.get("is_fulfilled", True)
@@ -315,72 +296,43 @@ async def code_regenerate_node(state: EDWState) -> dict:
         # 获取代码语言
         code_language = state.get("code_language", "sql")
         
-        # 构建改进提示词（增强需求不符的处理）
-        improvement_prompt = _build_improvement_prompt(
-            current_code=current_code,
-            review_feedback=review_feedback,
-            review_suggestions=review_suggestions,
-            original_requirements={
-                "table_name": table_name,
-                "fields": fields,
-                "logic_detail": logic_detail
-            },
-            requirement_report=requirement_report,  # 传递需求符合度报告
-            code_language=code_language
-        )
-        
-        # 直接await异步执行代码重新生成
+        # 🎯 优化版本：直接传递state，大大简化参数传递
         from src.graph.utils.enhancement import execute_code_enhancement_task
         
+        logger.info(f"调用统一代码增强接口进行review重新生成: {table_name}")
+        send_node_message(state, "AI", "processing", "按review的结果进行代码重生成...", 0.1)
+
+        # 简化调用：只传递state和mode，所有参数都从state获取
         regeneration_result = await execute_code_enhancement_task(
-            enhancement_mode="review_improvement",
-            current_code=current_code,
-            improvement_prompt=improvement_prompt,
-            table_name=table_name,
-            source_code=source_code,
-            adb_code_path=adb_code_path,
-            fields=fields,
-            logic_detail=logic_detail,
-            code_path=code_path,
-            user_id=user_id,
-            review_feedback=review_feedback,
-            review_suggestions=review_suggestions,
-            state=state  # 传递state以支持Socket发送
+            state=state,
+            enhancement_mode="review_improvement"
         )
         
         if regeneration_result.get("success"):
             logger.info(f"代码重新生成成功 - 表: {table_name}")
             
-            # 🎯 发送重新生成的代码到前端显示
-            session_id = state.get("session_id", "unknown")
-            from src.server.socket_manager import get_session_socket
-
-            socket_queue = get_session_socket(session_id)
-            if socket_queue:
-                try:
-                    socket_queue.send_message(
-                        session_id,
-                        "enhanced_code",
-                        {
-                            "type": "enhanced_code",
-                            "content": regeneration_result.get("enhanced_code"),
-                            "table_name": table_name,
-                            "create_table_sql": regeneration_result.get("new_table_ddl", state.get("create_table_sql")),
-                            "alter_table_sql": regeneration_result.get("alter_statements", state.get("alter_table_sql")),
-                            "fields_count": len(fields) if fields else 0,
-                            "enhancement_type": state.get("enhancement_type", ""),
-                            "enhancement_mode": "review_improvement",  # 标记为review改进模式
-                            "model_name": state.get("model_attribute_name", ""),
-                            "file_path": code_path,
-                            "adb_path": adb_code_path,
-                            "optimization_summary": regeneration_result.get("optimization_summary", ""),
-                            "review_round": state.get("review_round", 1),
-                            "timestamp": datetime.now().isoformat()
-                        }
-                    )
-                    logger.info(f"✅ Socket发送review改进代码成功: {table_name}")
-                except Exception as e:
-                    logger.warning(f"Socket发送review改进代码失败: {e}")
+            # 🎯 发送重新生成的代码到前端显示 - 使用统一接口
+            success = send_code_message(
+                state=state,
+                code_type="enhanced",
+                content=regeneration_result.get("enhanced_code"),
+                table_name=table_name,
+                enhancement_mode="review_improvement",  # 标记为review改进模式
+                create_table_sql=regeneration_result.get("new_table_ddl", state.get("create_table_sql")),
+                alter_table_sql=regeneration_result.get("alter_statements", state.get("alter_table_sql")),
+                fields_count=len(fields) if fields else 0,
+                enhancement_type=state.get("enhancement_type", ""),
+                model_name=state.get("model_attribute_name", ""),
+                file_path=code_path,
+                adb_path=adb_code_path,
+                optimization_summary=regeneration_result.get("optimization_summary", ""),
+                review_round=state.get("review_round", 1)
+            )
+            
+            if success:
+                logger.info(f"✅ 统一接口发送review改进代码成功: {table_name}")
+            else:
+                logger.warning(f"❌ 统一接口发送review改进代码失败: {table_name}")
             
             return {
                 "enhance_code": regeneration_result.get("enhanced_code"),
@@ -638,3 +590,7 @@ def _parse_review_response(content: str) -> dict:
             logger.error(f"修复解析失败: {fix_error}")
             logger.error(f"原始内容前200字符: {content[:200]}...")
             return default_result
+
+
+# 注意：_build_git_diff_improvement_prompt 函数已删除
+# 该功能已合并到 src/graph/utils/enhancement.py 中的 GitDiffEnhancer 类

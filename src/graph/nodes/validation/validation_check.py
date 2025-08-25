@@ -6,6 +6,8 @@
 import logging
 from langgraph.types import interrupt
 from langchain.schema.messages import HumanMessage, AIMessage
+
+from src.graph.utils.message_sender import send_node_message
 from src.models.states import EDWState
 from src.graph.contextual_prompt import generate_contextual_prompt
 
@@ -22,7 +24,7 @@ def validation_context_node(state: EDWState):
     if validation_status == "incomplete_info":
         failed_node = state.get("failed_validation_node", "unknown")
         logger.info(f"验证失败于节点: {failed_node}, 生成上下文感知提示")
-        
+        send_node_message(state, "ai", "processing", "AI整理中...", 0.9)
         # 生成上下文感知的提示
         contextual_prompt = generate_contextual_prompt(state, "validation_error")
         

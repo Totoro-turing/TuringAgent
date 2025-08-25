@@ -86,17 +86,6 @@ class EDWStreamService:
 
             # 3. 通过SocketIO推送工作流开始事件
             socket_queue = self._get_socket_queue()
-            if socket_queue:
-                socket_queue.send_message(
-                    self.config.session_id,
-                    "workflow_start",
-                    {
-                        "message": "正在处理您的请求...",
-                        "thread_id": self.current_thread_id,
-                        "timestamp": datetime.now().isoformat()
-                    }
-                )
-
             self.workflow_active = True
 
             # 4. 流式执行图 - 使用组合模式获取节点路由和自定义数据
@@ -166,9 +155,6 @@ class EDWStreamService:
                         # 保存当前状态
                         self.current_state = node_output
 
-                        # 通过SocketIO推送节点状态
-                        if self.config.socket_queue:
-                            await self._push_node_update(node_name, node_output)
 
                         # 根据节点类型处理流式输出
                         async for output_chunk in self._process_node_output(node_name, node_output):
@@ -329,8 +315,6 @@ class EDWStreamService:
 
                         # 推送节点更新（仅对dict类型的节点输出）
                         socket_queue = self._get_socket_queue()
-                        if socket_queue:
-                            await self._push_node_update(node_name, node_output)
 
                         # 处理节点输出
                         async for output_chunk in self._process_node_output(node_name, node_output):

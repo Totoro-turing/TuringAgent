@@ -21,6 +21,7 @@ class CodeAnalysisTool(BaseTool):
             tables = self._extract_tables_from_code(code, code_type)
             return f"找到以下表引用: {', '.join(tables)}"
         except Exception as e:
+            logger.error(f"代码分析失败: {str(e)}")
             return f"代码分析失败: {str(e)}"
     
     def _extract_tables_from_code(self, code: str, code_type: str) -> List[str]:

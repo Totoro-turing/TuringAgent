@@ -15,7 +15,7 @@ from src.agent.edw_agents import (
 )
 from src.config import get_config_manager
 from src.graph.utils.session import SessionManager
-from src.server.socket_manager import get_session_socket
+from src.graph.utils.message_sender import send_node_message
 
 logger = logging.getLogger(__name__)
 
@@ -49,21 +49,13 @@ async def navigate_node(state: EDWState):
             node_name="navigation",
             enhanced_monitoring=True
         )
-        session_id = state.get("session_id", "unknown")
-
-    # 🎯 通过全局socket管理器获取socket队列
-        socket_queue = get_session_socket(session_id)
-
-    # 🎯 Socket直接发送（主要方案）
-        socket_queue.send_message(
-            session_id,
-            "validation_progress",
-            {
-                "node": "navigate_node",
-                "status": "processing",
-                "message": "正在分析您的需求",
-                "progress": 0.1
-            }
+        # 发送节点处理进度消息
+        send_node_message(
+            state,
+            "AI", 
+            "processing",
+            "我先理解一下用户的需求...",
+            0.1
         )
         # 获取消息内容
         last_message = state["messages"][-1]

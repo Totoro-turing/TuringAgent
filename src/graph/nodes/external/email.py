@@ -9,7 +9,7 @@ from typing import Dict, Any
 from langchain.schema.messages import AIMessage
 
 from src.graph.tools.email_tools import send_model_review_email
-from src.graph.utils.progress import send_node_start, send_node_processing, send_node_completed, send_node_failed
+from src.graph.utils.message_sender import send_node_message
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ async def edw_email_node(state: Dict[str, Any]) -> Dict[str, Any]:
         更新后的状态
     """
     # 🎯 发送节点开始进度
-    send_node_start(state, "email", "开始发送模型评审邮件...")
+    send_node_message(state, "email", "started", "开始发送模型评审邮件...")
     
     try:
         # 从state中获取相关信息
@@ -38,12 +38,12 @@ async def edw_email_node(state: Dict[str, Any]) -> Dict[str, Any]:
         enhancement_type = state.get("enhancement_type", "add_field")
         
         # 🎯 发送验证进度
-        send_node_processing(state, "email", "验证邮件发送参数...", 0.1)
+        send_node_message(state, "email", "processing", "验证邮件发送参数...", 0.1)
         
         logger.info(f"准备发送模型评审邮件: {table_name}")
         
         # 🎯 发送邮件准备进度
-        send_node_processing(state, "email", f"正在为{table_name}准备评审邮件...", 0.3)
+        send_node_message(state, "email", "processing", f"正在为{table_name}准备评审邮件...", 0.3)
         
         # 直接异步调用邮件发送
         send_result = await send_model_review_email(
@@ -59,11 +59,13 @@ async def edw_email_node(state: Dict[str, Any]) -> Dict[str, Any]:
             logger.info(f"邮件发送成功: {table_name}")
             
             # 🎯 发送成功进度
-            send_node_completed(
+            send_node_message(
                 state, 
                 "email", 
+                "completed",
                 f"成功发送{table_name}的模型评审邮件",
-                extra_data={
+                1.0,
+                {
                     "table_name": table_name,
                     "email_subject": send_result.get("metadata", {}).get("email_subject", f"Model Review Request - {model_name or table_name}"),
                     "confluence_included": bool(confluence_page_url)
@@ -93,7 +95,7 @@ async def edw_email_node(state: Dict[str, Any]) -> Dict[str, Any]:
             error_msg = send_result.get("error", "邮件发送失败")
             logger.error(f"邮件发送失败: {error_msg}")
             # 🎯 发送失败进度
-            send_node_failed(state, "email", error_msg)
+            send_node_message(state, "email", "failed", f"错误: {error_msg}", 0.0)
             return {
                 "messages": [AIMessage(content=f"邮件发送失败: {error_msg}")],
                 "error_message": error_msg,
@@ -105,7 +107,7 @@ async def edw_email_node(state: Dict[str, Any]) -> Dict[str, Any]:
         error_msg = f"邮件节点处理失败: {str(e)}"
         logger.error(error_msg)
         # 🎯 发送异常失败进度
-        send_node_failed(state, "email", error_msg)
+        send_node_message(state, "email", "failed", f"错误: {error_msg}", 0.0)
         return {
             "messages": [AIMessage(content=f"邮件节点处理失败: {str(e)}")],
             "error_message": error_msg,

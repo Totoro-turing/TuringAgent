@@ -276,8 +276,7 @@ def parse_agent_response(content: str) -> dict:
     default_result = {
         "enhanced_code": "",
         "new_table_ddl": "",
-        "alter_statements": "",
-        "table_comment": ""  # 表comment信息（模型名称）
+        "alter_statements": ""
     }
     
     try:

@@ -321,19 +321,6 @@ class AIModelService:
 
             logger.info(f"🌐 处理消息: {message[:50]}... (会话: {session_id[:8]})")
 
-            # 🆕 发送处理开始进度消息，让用户立即看到处理状态
-            self.message_queue.send_message(
-                session_id,
-                "node_progress",  # 与现有进度系统保持一致的消息类型
-                {
-                    "node": "chat_handler",
-                    "status": "processing",
-                    "message": "processing...",
-                    "progress": 0.0,
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
-
             # 创建或获取EDW服务实例
             if session_id not in self.edw_stream_services:
                 config = EDWStreamConfig(

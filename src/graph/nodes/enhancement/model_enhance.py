@@ -9,7 +9,10 @@ from datetime import datetime
 from langchain.schema.messages import AIMessage
 from src.models.states import EDWState
 from src.graph.utils.enhancement import execute_code_enhancement_task
-from src.graph.utils.progress import send_node_start, send_node_processing, send_node_completed, send_node_failed
+from src.graph.utils.message_sender import (
+    send_node_message,
+    send_code_message
+)
 
 logger = logging.getLogger(__name__)
 
@@ -17,9 +20,7 @@ logger = logging.getLogger(__name__)
 async def edw_model_enhance_node(state: EDWState):
     """模型增强处理节点"""
     
-    # 🎯 发送节点开始进度
-    send_node_start(state, "model_enhance", "开始模型增强处理...")
-    
+
     try:
         # 提取状态中的信息
         table_name = state.get("table_name")
@@ -32,12 +33,12 @@ async def edw_model_enhance_node(state: EDWState):
         enhancement_type = state.get("enhancement_type", "add_field")
         
         # 🎯 发送验证进度
-        send_node_processing(state, "model_enhance", "验证增强参数...", 0.1)
+        send_node_message(state, "AI", "processing", "我最后检查一下信息是否完整...", 0.1)
         
         # 验证必要信息
         if not table_name or not source_code:
             error_msg = "缺少必要信息：表名或源代码为空"
-            send_node_failed(state, "model_enhance", error_msg)
+            send_node_message(state, "model_enhance", "failed", f"错误: {error_msg}", 0.0)
             return {
                 "error_message": error_msg,
                 "user_id": user_id
@@ -45,67 +46,47 @@ async def edw_model_enhance_node(state: EDWState):
         
         if not fields:
             error_msg = "没有找到新增字段信息"
-            send_node_failed(state, "model_enhance", error_msg)
+            send_node_message(state, "model_enhance", "failed", f"错误: {error_msg}", 0.0)
             return {
                 "error_message": error_msg,
                 "user_id": user_id
             }
         
         # 🎯 发送代码增强进度
-        send_node_processing(state, "model_enhance", f"正在生成{table_name}的增强代码...", 0.3)
+        send_node_message(state, "AI", "processing", f"让我基于您的需求生成新的代码...", 0.3)
         
-        # 异步执行代码增强 - 直接await调用，传递state以支持Socket发送
+        # 异步执行代码增强 - 优化版本：只传递state，所有参数都从state获取
         enhancement_result = await execute_code_enhancement_task(
-            enhancement_mode="initial_enhancement",
-            table_name=table_name,
-            source_code=source_code,
-            adb_code_path=adb_code_path,
-            fields=fields,
-            logic_detail=logic_detail,
-            code_path=code_path,
-            user_id=user_id,
-            state=state  # 传递完整的state，包含session_id等信息
+            state=state,
+            enhancement_mode="initial_enhancement"
         )
         
         if enhancement_result.get("success"):
-            # 🎯 发送格式化结果进度
-            send_node_processing(state, "model_enhance", "格式化增强结果...", 0.8)
-            
             # 直接使用从数据校验节点传递过来的模型名称
             model_name = state.get("model_attribute_name", "")
             logger.info(f"使用数据校验节点提取的模型名称: {model_name}")
             
-            # 🎯 发送增强代码到前端显示
-            session_id = state.get("session_id", "unknown")
-            from src.server.socket_manager import get_session_socket
+            # 🎯 发送增强代码到前端显示 - 使用统一消息接口
+            success = send_code_message(
+                state=state,
+                code_type="enhanced",
+                content=enhancement_result.get("enhanced_code"),
+                table_name=table_name,
+                enhancement_mode="initial_enhancement",
+                create_table_sql=enhancement_result.get("new_table_ddl"),
+                alter_table_sql=enhancement_result.get("alter_statements"),
+                fields_count=len(fields),
+                enhancement_type=enhancement_type,
+                model_name=model_name,
+                file_path=code_path,
+                adb_path=adb_code_path,
+                optimization_summary=enhancement_result.get("optimization_summary", "")
+            )
             
-            socket_queue = get_session_socket(session_id)
-            if socket_queue:
-                try:
-                    socket_queue.send_message(
-                        session_id,
-                        "enhanced_code",
-                        {
-                            "type": "enhanced_code",
-                            "content": enhancement_result.get("enhanced_code"),
-                            "table_name": table_name,
-                            "create_table_sql": enhancement_result.get("new_table_ddl"),
-                            "alter_table_sql": enhancement_result.get("alter_statements"),
-                            "fields_count": len(fields),
-                            "enhancement_type": enhancement_type,
-                            "enhancement_mode": "initial_enhancement",
-                            "model_name": model_name,
-                            "file_path": code_path,
-                            "adb_path": adb_code_path,
-                            "optimization_summary": enhancement_result.get("optimization_summary", ""),
-                            "timestamp": datetime.now().isoformat()
-                        }
-                    )
-                    logger.info(f"✅ Socket发送增强代码成功: {table_name} (长度: {len(enhancement_result.get('enhanced_code', ''))} 字符)")
-                except Exception as e:
-                    logger.warning(f"Socket发送增强代码失败: {e}")
+            if success:
+                logger.info(f"✅ 统一接口发送增强代码成功: {table_name} (长度: {len(enhancement_result.get('enhanced_code', ''))} 字符)")
             else:
-                logger.debug(f"Socket队列不存在: {session_id}")
+                logger.warning(f"❌ 统一接口发送增强代码失败: {table_name}")
             
             # 格式化增强结果为用户友好的消息
             formatted_message = f"""## 🎉 代码增强完成
@@ -140,10 +121,12 @@ async def edw_model_enhance_node(state: EDWState):
                 formatted_message += f"- {physical_name} ({attribute_name}) <- 源字段: {source_name}\n"
             
             # 🎯 发送完成进度
-            send_node_completed(
-                state, 
-                "model_enhance", 
-                f"成功生成{len(fields)}个字段的增强代码",
+            send_node_message(
+                state=state,
+                node_name="model_enhance",
+                status="completed",
+                message=f"成功生成{len(fields)}个字段的增强代码",
+                progress=1.0,
                 extra_data={
                     "table_name": table_name,
                     "fields_count": len(fields),
@@ -172,7 +155,7 @@ async def edw_model_enhance_node(state: EDWState):
             error_msg = enhancement_result.get("error", "未知错误")
             logger.error(f"代码增强失败: {error_msg}")
             # 🎯 发送失败进度
-            send_node_failed(state, "model_enhance", error_msg)
+            send_node_message(state, "model_enhance", "failed", f"错误: {error_msg}", 0.0)
             return {
                 "error_message": error_msg,
                 "user_id": user_id,

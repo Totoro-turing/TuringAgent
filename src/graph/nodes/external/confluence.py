@@ -9,7 +9,7 @@ from typing import Dict, Any
 from langchain.schema.messages import AIMessage
 
 from src.graph.tools.confluence_tools import create_model_documentation
-from src.graph.utils.progress import send_node_start, send_node_processing, send_node_completed, send_node_failed
+from src.graph.utils.message_sender import send_node_message
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ async def edw_confluence_node(state: Dict[str, Any]) -> Dict[str, Any]:
         更新后的状态
     """
     # 🎯 发送节点开始进度
-    send_node_start(state, "confluence", "开始创建Confluence文档...")
+    send_node_message(state, "confluence", "started", "开始创建Confluence文档...")
     
     try:
         # 提取状态中的信息
@@ -39,12 +39,12 @@ async def edw_confluence_node(state: Dict[str, Any]) -> Dict[str, Any]:
         base_tables = state.get("base_tables", [])
         
         # 🎯 发送验证进度
-        send_node_processing(state, "confluence", "验证文档创建参数...", 0.1)
+        send_node_message(state, "confluence", "processing", "验证文档创建参数...", 0.1)
 
         logger.info(f"准备创建Confluence文档: {table_name}")
         
         # 🎯 发送文档创建进度
-        send_node_processing(state, "confluence", f"正在为{table_name}创建Confluence文档...", 0.5)
+        send_node_message(state, "confluence", "processing", f"正在为{table_name}创建Confluence文档...", 0.5)
         
         # 直接异步调用Confluence文档创建
         confluence_result = await create_model_documentation(
@@ -77,11 +77,13 @@ async def edw_confluence_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 confluence_title = metadata.get("page_title", "")
             
             # 🎯 发送成功进度
-            send_node_completed(
+            send_node_message(
                 state, 
                 "confluence", 
+                "completed",
                 f"成功创建Confluence文档: {confluence_title or table_name}",
-                extra_data={
+                1.0,
+                {
                     "page_url": confluence_page_url,
                     "page_id": confluence_page_id,
                     "table_name": table_name
@@ -113,7 +115,7 @@ async def edw_confluence_node(state: Dict[str, Any]) -> Dict[str, Any]:
             error_msg = confluence_result.get("error", "未知错误")
             logger.error(f"Confluence文档创建失败: {error_msg}")
             # 🎯 发送失败进度
-            send_node_failed(state, "confluence", error_msg)
+            send_node_message(state, "confluence", "failed", f"错误: {error_msg}", 0.0)
             return {
                 "messages": [AIMessage(content=f"Confluence文档创建失败: {error_msg}")],
                 "error_message": error_msg,
@@ -125,7 +127,7 @@ async def edw_confluence_node(state: Dict[str, Any]) -> Dict[str, Any]:
         error_msg = f"Confluence节点处理失败: {str(e)}"
         logger.error(error_msg)
         # 🎯 发送异常失败进度
-        send_node_failed(state, "confluence", error_msg)
+        send_node_message(state, "confluence", "failed", f"错误: {error_msg}", 0.0)
         return {
             "messages": [AIMessage(content=f"Confluence节点处理失败: {str(e)}")],
             "error_message": error_msg,

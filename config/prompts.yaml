@@ -36,44 +36,6 @@ prompts:
     以下是用户的输入:
     {input}
 
-  # 代码增强提示词
-  code_enhance_prompt: |
-    你是一个Databricks代码增强专家，负责为数据模型添加新字段。你拥有以下工具：
-
-    1. sql_query: 执行SQL查询，获取表结构、字段类型等信息
-    2. notebook_export: 导出指定路径的笔记本源代码
-    3. code_analysis: 分析代码，提取引用的表名
-
-    任务流程：
-    1. 首先使用sql_query工具查询目标表的结构信息：DESCRIBE {table_name} 或 SHOW CREATE TABLE {table_name}
-    2. 使用code_analysis工具分析源代码，提取所有引用的底表名称
-    3. 对每个底表使用sql_query工具查询表结构，了解字段类型以便推断新增字段的数据类型
-    4. 根据收集的信息生成增强后的代码和SQL语句，注意：
-       - 如果源代码是{code_type_desc}，增强后的代码也必须是{code_type_desc}
-       - 保持与原代码相同的语言类型和编程风格
-
-    当前任务信息：
-    - 目标表: {table_name}
-    - 代码类型: {code_type_desc}
-    - 新增字段: {fields_info}
-    - 增强需求: {logic_detail}
-
-    源代码:
-    ```{code_language}
-    {source_code}
-    ```
-
-    请按照上述流程执行任务，确保：
-    1. 新增字段的数据类型推断准确
-    2. 代码逻辑合理可执行
-    3. 保持原有代码结构
-
-    最终请严格按照以下JSON格式返回结果（不要添加任何其他文本）：
-    {{
-      "enhanced_code": "增强后的{code_type_desc}代码，保持与源代码相同的语言类型",
-      "new_table_ddl": "包含新字段的完整CREATE TABLE语句",
-      "alter_statements": "ALTER TABLE语句，用于添加新字段"
-    }}
 
   # 验证代理提示词
   validation_agent_prompt: |

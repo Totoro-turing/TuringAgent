@@ -7,7 +7,7 @@ import logging
 from langchain.schema.messages import AIMessage
 from src.models.states import EDWState
 from src.basic.github import GitHubTool
-from src.graph.utils.progress import send_node_start, send_node_processing, send_node_completed, send_node_failed, send_node_skipped
+from src.graph.utils.message_sender import send_node_message
 
 logger = logging.getLogger(__name__)
 
@@ -15,12 +15,12 @@ logger = logging.getLogger(__name__)
 def github_push_node(state: EDWState):
     """将AI修改的代码推送到GitHub远程仓库"""
     # 🎯 发送节点开始进度
-    send_node_start(state, "github_push", "开始推送代码到GitHub...")
+    send_node_message(state, "github_push", "started", "开始推送代码到GitHub...")
     
     logger.info("模拟更新github 成功")
     
     # 🎯 发送模拟成功进度
-    send_node_completed(state, "github_push", "模拟推送成功（实际功能已禁用）", extra_data={"simulated": True})
+    send_node_message(state, "github_push", "completed", "模拟推送成功（实际功能已禁用）", 1.0, {"simulated": True})
     
     # 返回模拟成功的消息
     return {
@@ -38,13 +38,13 @@ def github_push_node(state: EDWState):
         user_id = state.get("user_id", "")
         
         # 🎯 发送验证进度
-        send_node_processing(state, "github_push", "验证推送参数...", 0.1)
+        send_node_message(state, "github_push", "processing", "验证推送参数...", 0.1)
         
         # 验证必要信息
         if not enhanced_code:
             error_msg = "缺少增强后的代码，无法推送到GitHub"
             logger.error(error_msg)
-            send_node_skipped(state, "github_push", "缺少增强代码")
+            send_node_message(state, "github_push", "skipped", "跳过: 缺少增强代码", 1.0)
             return {
                 "messages": [AIMessage(content=f"GitHub推送跳过: {error_msg}")],
                 "user_id": user_id,
@@ -56,7 +56,7 @@ def github_push_node(state: EDWState):
         if not code_path:
             error_msg = "缺少代码文件路径，无法推送到GitHub"
             logger.error(error_msg)
-            send_node_skipped(state, "github_push", "缺少代码路径")
+            send_node_message(state, "github_push", "skipped", "跳过: 缺少代码路径", 1.0)
             return {
                 "messages": [AIMessage(content=f"GitHub推送跳过: {error_msg}")],
                 "user_id": user_id,
@@ -68,7 +68,7 @@ def github_push_node(state: EDWState):
         logger.info(f"准备将增强后的代码推送到GitHub: {code_path}")
         
         # 🎯 发送初始化进度
-        send_node_processing(state, "github_push", "初始化GitHub工具...", 0.3)
+        send_node_message(state, "github_push", "processing", "初始化GitHub工具...", 0.3)
         
         # 初始化GitHub工具
         try:
@@ -76,7 +76,7 @@ def github_push_node(state: EDWState):
         except Exception as e:
             error_msg = f"初始化GitHub工具失败: {str(e)}"
             logger.error(error_msg)
-            send_node_failed(state, "github_push", error_msg)
+            send_node_message(state, "github_push", "failed", f"错误: {error_msg}", 0.0)
             return {
                 "messages": [AIMessage(content=f"GitHub工具初始化失败: {error_msg}")],
                 "user_id": user_id,
@@ -87,7 +87,7 @@ def github_push_node(state: EDWState):
             }
         
         # 🎯 发送推送进度
-        send_node_processing(state, "github_push", f"正在推送代码到GitHub: {table_name}", 0.7)
+        send_node_message(state, "github_push", "processing", f"正在推送代码到GitHub: {table_name}", 0.7)
         
         # 推送代码到GitHub
         try:
@@ -107,11 +107,13 @@ def github_push_node(state: EDWState):
                 logger.info(success_msg)
                 
                 # 🎯 发送成功进度
-                send_node_completed(
+                send_node_message(
                     state, 
                     "github_push", 
+                    "completed",
                     success_msg,
-                    extra_data={
+                    1.0,
+                    {
                         "commit_sha": result.get("commit", {}).get("sha", ""),
                         "table_name": table_name
                     }
@@ -149,7 +151,7 @@ def github_push_node(state: EDWState):
                 info_msg = "代码内容未发生变化，无需推送"
                 logger.info(info_msg)
                 # 🎯 发送跳过进度
-                send_node_skipped(state, "github_push", "代码无变化")
+                send_node_message(state, "github_push", "skipped", "跳过: 代码无变化", 1.0)
                 return {
                     "messages": [AIMessage(content="代码内容未发生变化，无需推送到GitHub")],
                     "user_id": user_id,
@@ -160,7 +162,7 @@ def github_push_node(state: EDWState):
                 error_msg = result.get("message", "GitHub推送失败")
                 logger.error(f"GitHub推送失败: {error_msg}")
                 # 🎯 发送失败进度
-                send_node_failed(state, "github_push", error_msg)
+                send_node_message(state, "github_push", "failed", f"错误: {error_msg}", 0.0)
                 return {
                     "messages": [AIMessage(content=f"GitHub推送失败: {error_msg}")],
                     "user_id": user_id,
@@ -174,7 +176,7 @@ def github_push_node(state: EDWState):
             error_msg = f"推送到GitHub时发生异常: {str(e)}"
             logger.error(error_msg)
             # 🎯 发送异常失败进度
-            send_node_failed(state, "github_push", error_msg)
+            send_node_message(state, "github_push", "failed", f"错误: {error_msg}", 0.0)
             return {
                 "messages": [AIMessage(content=f"GitHub推送异常: {str(e)}")],
                 "user_id": user_id,
@@ -188,7 +190,7 @@ def github_push_node(state: EDWState):
         error_msg = f"GitHub推送节点处理失败: {str(e)}"
         logger.error(error_msg)
         # 🎯 发送全局异常失败进度
-        send_node_failed(state, "github_push", error_msg)
+        send_node_message(state, "github_push", "failed", f"错误: {error_msg}", 0.0)
         return {
             "messages": [AIMessage(content=f"GitHub节点处理失败: {str(e)}")],
             "user_id": state.get("user_id", ""),
