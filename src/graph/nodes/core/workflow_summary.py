@@ -98,7 +98,7 @@ def _build_summary_prompt(messages: list) -> str:
     
     conversation_text = "\n".join(conversation_history)
     
-    prompt = f"""基于以下对话历史，生成一个工作流执行总结。
+    prompt = f"""基于以下对话历史，生成一个AI自动化开发总结。
 
 对话历史：
 {conversation_text}

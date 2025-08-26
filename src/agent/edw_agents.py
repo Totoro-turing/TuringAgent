@@ -108,6 +108,7 @@ class EDWAgentManager:
 3. 增强类型（添加字段、修改逻辑、优化查询等）
 4. 字段信息：如果是添加字段，请提取所有字段到fields列表中
 5. 代码分支名称（如：main, dev, feature/xxx）
+6. JIRA工单号：用于需求跟踪和管理
 
 
 特别注意：

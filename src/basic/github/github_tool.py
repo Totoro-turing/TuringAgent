@@ -370,24 +370,59 @@ class GitHubTool:
                 operation = "created"
                 logger.info(f"成功创建文件 {file_path}")
             
-            # 构建返回结果
+            # 🎯 构建返回结果 - 添加安全的属性访问检查
+            commit_info = {}
+            if result and 'commit' in result and result['commit']:
+                commit_obj = result['commit']
+                commit_info = {
+                    "sha": commit_obj.sha if hasattr(commit_obj, 'sha') else "unknown",
+                    "message": message,
+                    "url": commit_obj.html_url if hasattr(commit_obj, 'html_url') else ""
+                }
+                
+                # 安全访问author信息
+                if hasattr(commit_obj, 'commit') and commit_obj.commit:
+                    if hasattr(commit_obj.commit, 'author') and commit_obj.commit.author:
+                        commit_info["author"] = commit_obj.commit.author.name
+                        commit_info["date"] = commit_obj.commit.author.date.isoformat()
+                    else:
+                        commit_info["author"] = "unknown"
+                        commit_info["date"] = datetime.now().isoformat()
+                else:
+                    commit_info["author"] = "unknown"
+                    commit_info["date"] = datetime.now().isoformat()
+            else:
+                commit_info = {
+                    "sha": "unknown",
+                    "message": message,
+                    "author": "unknown", 
+                    "date": datetime.now().isoformat(),
+                    "url": ""
+                }
+            
+            file_info = {}
+            if result and 'content' in result and result['content']:
+                content_obj = result['content']
+                file_info = {
+                    "path": file_path,
+                    "size": len(content.encode('utf-8')),
+                    "sha": content_obj.sha if hasattr(content_obj, 'sha') else "unknown",
+                    "url": content_obj.html_url if hasattr(content_obj, 'html_url') else ""
+                }
+            else:
+                file_info = {
+                    "path": file_path,
+                    "size": len(content.encode('utf-8')),
+                    "sha": "unknown",
+                    "url": ""
+                }
+            
             return {
                 "status": "success",
                 "operation": operation,
                 "branch": target_branch,
-                "commit": {
-                    "sha": result['commit'].sha,
-                    "message": message,
-                    "author": result['commit'].commit.author.name,
-                    "date": result['commit'].commit.author.date.isoformat(),
-                    "url": result['commit'].html_url
-                },
-                "file": {
-                    "path": file_path,
-                    "size": len(content.encode('utf-8')),
-                    "sha": result['content'].sha,
-                    "url": result['content'].html_url
-                }
+                "commit": commit_info,
+                "file": file_info
             }
             
         except GithubException as e:
@@ -497,22 +532,41 @@ class GitHubTool:
                 if count >= max_count:
                     break
                     
+                # 🎯 安全的commit信息构建
                 commit_info = {
-                    "sha": commit.sha,
-                    "message": commit.commit.message,
-                    "author": {
-                        "name": commit.commit.author.name,
-                        "email": commit.commit.author.email,
-                        "date": commit.commit.author.date.isoformat()
-                    },
-                    "committer": {
-                        "name": commit.commit.committer.name,
-                        "email": commit.commit.committer.email,
-                        "date": commit.commit.committer.date.isoformat()
-                    },
-                    "url": commit.html_url,
-                    "parents": [p.sha for p in commit.parents]
+                    "sha": commit.sha if hasattr(commit, 'sha') else "unknown",
+                    "message": commit.commit.message if (hasattr(commit, 'commit') and commit.commit and hasattr(commit.commit, 'message')) else "No message",
+                    "url": commit.html_url if hasattr(commit, 'html_url') else "",
+                    "parents": [p.sha for p in commit.parents] if hasattr(commit, 'parents') and commit.parents else []
                 }
+                
+                # 安全访问author信息
+                if hasattr(commit, 'commit') and commit.commit and hasattr(commit.commit, 'author') and commit.commit.author:
+                    commit_info["author"] = {
+                        "name": commit.commit.author.name if hasattr(commit.commit.author, 'name') else "unknown",
+                        "email": commit.commit.author.email if hasattr(commit.commit.author, 'email') else "unknown",
+                        "date": commit.commit.author.date.isoformat() if hasattr(commit.commit.author, 'date') else datetime.now().isoformat()
+                    }
+                else:
+                    commit_info["author"] = {
+                        "name": "unknown",
+                        "email": "unknown",
+                        "date": datetime.now().isoformat()
+                    }
+                
+                # 安全访问committer信息
+                if hasattr(commit, 'commit') and commit.commit and hasattr(commit.commit, 'committer') and commit.commit.committer:
+                    commit_info["committer"] = {
+                        "name": commit.commit.committer.name if hasattr(commit.commit.committer, 'name') else "unknown",
+                        "email": commit.commit.committer.email if hasattr(commit.commit.committer, 'email') else "unknown",
+                        "date": commit.commit.committer.date.isoformat() if hasattr(commit.commit.committer, 'date') else datetime.now().isoformat()
+                    }
+                else:
+                    commit_info["committer"] = {
+                        "name": "unknown", 
+                        "email": "unknown",
+                        "date": datetime.now().isoformat()
+                    }
                 commits.append(commit_info)
                 count += 1
             
@@ -806,31 +860,47 @@ class GitHubTool:
             added_lines = sum(1 for line in diff_lines if line.startswith('+') and not line.startswith('+++'))
             deleted_lines = sum(1 for line in diff_lines if line.startswith('-') and not line.startswith('---'))
             
-            # 获取提交信息
+            # 🎯 安全获取提交信息
             try:
                 commit1 = self.repo.get_commit(sha1)
                 commit1_info = {
-                    "sha": commit1.sha,
-                    "message": commit1.commit.message,
-                    "author": commit1.commit.author.name,
-                    "date": commit1.commit.author.date.isoformat()
+                    "sha": commit1.sha if hasattr(commit1, 'sha') else sha1,
+                    "message": commit1.commit.message if (hasattr(commit1, 'commit') and commit1.commit and hasattr(commit1.commit, 'message')) else "No message"
                 }
-            except:
-                commit1_info = {"sha": sha1}
+                
+                # 安全访问author信息
+                if hasattr(commit1, 'commit') and commit1.commit and hasattr(commit1.commit, 'author') and commit1.commit.author:
+                    commit1_info["author"] = commit1.commit.author.name if hasattr(commit1.commit.author, 'name') else "unknown"
+                    commit1_info["date"] = commit1.commit.author.date.isoformat() if hasattr(commit1.commit.author, 'date') else datetime.now().isoformat()
+                else:
+                    commit1_info["author"] = "unknown"
+                    commit1_info["date"] = datetime.now().isoformat()
+                    
+            except Exception as e:
+                logger.warning(f"获取commit1信息失败: {e}")
+                commit1_info = {"sha": sha1, "message": "无法获取", "author": "unknown", "date": datetime.now().isoformat()}
             
             if sha2_actual != "HEAD":
                 try:
                     commit2 = self.repo.get_commit(sha2_actual)
                     commit2_info = {
-                        "sha": commit2.sha,
-                        "message": commit2.commit.message,
-                        "author": commit2.commit.author.name,
-                        "date": commit2.commit.author.date.isoformat()
+                        "sha": commit2.sha if hasattr(commit2, 'sha') else sha2_actual,
+                        "message": commit2.commit.message if (hasattr(commit2, 'commit') and commit2.commit and hasattr(commit2.commit, 'message')) else "No message"
                     }
-                except:
-                    commit2_info = {"sha": sha2_actual}
+                    
+                    # 安全访问author信息
+                    if hasattr(commit2, 'commit') and commit2.commit and hasattr(commit2.commit, 'author') and commit2.commit.author:
+                        commit2_info["author"] = commit2.commit.author.name if hasattr(commit2.commit.author, 'name') else "unknown"
+                        commit2_info["date"] = commit2.commit.author.date.isoformat() if hasattr(commit2.commit.author, 'date') else datetime.now().isoformat()
+                    else:
+                        commit2_info["author"] = "unknown"
+                        commit2_info["date"] = datetime.now().isoformat()
+                        
+                except Exception as e:
+                    logger.warning(f"获取commit2信息失败: {e}")
+                    commit2_info = {"sha": sha2_actual, "message": "无法获取", "author": "unknown", "date": datetime.now().isoformat()}
             else:
-                commit2_info = {"sha": "HEAD", "message": "当前工作区版本"}
+                commit2_info = {"sha": "HEAD", "message": "当前工作区版本", "author": "current", "date": datetime.now().isoformat()}
             
             return {
                 "status": "success",

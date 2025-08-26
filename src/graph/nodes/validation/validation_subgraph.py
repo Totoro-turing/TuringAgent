@@ -103,6 +103,7 @@ def parse_user_input_node(state: EDWState) -> dict:
                 "business_requirement": parsed_request.business_requirement,
                 "field_info": parsed_request.field_info,
                 "fields": [field.model_dump() for field in parsed_request.fields] if parsed_request.fields else [],
+                "jira_number": parsed_request.jira_number if parsed_request.jira_number else "",
                 # 🔥 清理错误信息，避免残留
                 "error_message": None,
                 "failed_validation_node": None,
@@ -335,6 +336,7 @@ def validate_completeness_node(state: EDWState) -> dict:
             business_requirement=state.get("business_requirement", ""),
             model_attribute_name=state.get("model_attribute_name", ""),
             business_purpose=state.get("business_purpose", ""),
+            jira_number=state.get("jira_number", ""),
             fields=fields
         )
 

@@ -457,14 +457,14 @@ def _build_review_prompt(enhanced_code: str, table_name: str, fields: list, revi
 {f"新增字段:\n{fields_info}" if fields_info else ""}
 
 **待评估代码**：
-```{code_language}
+```
 {enhanced_code}
 ```
 
 **请检查以下三个方面**：
 
 1. **需求符合度** (40分)
-   - 代码是否实现了用户的需求？
+   - 代码是否实现了用户的需求？如果是增强模型，特别注意添加字段的顺序是否符合用户要求
 
 2. **语法检查** (30分)
    - 代码有无语法错误？
@@ -482,50 +482,6 @@ def _build_review_prompt(enhanced_code: str, table_name: str, fields: list, revi
 - requirement_fulfillment_report.is_fulfilled: 需求是否满足
 - requirement_fulfillment_report.summary: 简要说明需求符合情况"""
 
-
-def _build_improvement_prompt(current_code: str, review_feedback: str, 
-                              review_suggestions: list, original_requirements: dict,
-                              requirement_report: dict = None, code_language: str = "sql") -> str:
-    """构建代码改进提示词（包含需求不符处理）"""
-    
-    suggestions_text = "\n".join([f"- {s}" for s in review_suggestions]) if review_suggestions else "无"
-    
-    # 强调需求不符
-    requirement_focus = ""
-    if requirement_report and not requirement_report.get("is_fulfilled", True):
-        summary = requirement_report.get("summary", "")
-        if summary:
-            requirement_focus = f"\n**需求问题**：{summary}\n"
-    
-    return f"""根据review反馈改进代码。
-
-**Review反馈**：
-{review_feedback}
-
-**改进建议**：
-{suggestions_text}
-{requirement_focus}
-**原始需求**：
-- 表名: {original_requirements.get('table_name', '')}
-- 逻辑: {original_requirements.get('logic_detail', '')}
-
-**当前代码**：
-```{code_language}
-{current_code}
-```
-
-**任务**：
-1. 修复所有问题
-2. 确保满足用户需求
-3. 提升代码质量
-
-**输出要求**：严格按JSON格式返回
-{{
-    "enhanced_code": "改进后的完整代码",
-    "new_table_ddl": "CREATE TABLE语句（如有变化）",
-    "alter_statements": "ALTER语句（如有变化）",
-    "optimization_summary": "本次改进的说明"
-}}"""
 
 
 def _parse_review_response(content: str) -> dict:

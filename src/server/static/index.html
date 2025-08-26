@@ -1162,25 +1162,14 @@
             max-height: 200px;   /* 限制高度 */
             overflow-y: auto;    /* 内容过多时显示滚动条 */
         }
-
-        /* 工具参数悬停提示框样式 */
-        .tool-params-tooltip {
-            position: absolute !important;
-            bottom: 100% !important;
-            left: 0;
-            right: 0;
-            background: rgba(30, 30, 30, 0.98) !important;
-            border: 1px solid rgba(124, 58, 237, 0.5) !important;
-            border-radius: 8px !important;
-            padding: 12px !important;
-            margin-bottom: 4px !important;
-            display: none;
-            z-index: 1000 !important;
-            max-height: 300px !important;
-            overflow-y: auto !important;
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
-            backdrop-filter: blur(10px) !important;
+        
+        /* 🎯 当包含tooltip时，允许垂直溢出以显示tooltip */
+        .thinking-detail-text.has-tooltip-content {
+            overflow-y: visible !important;
+            max-height: none !important;
         }
+
+        /* 🗑️ 删除过时的tooltip样式，使用新的fixed定位样式 */
         
         .thinking-step-entry {
             display: flex;
@@ -1202,9 +1191,7 @@
             padding-right: 4px;
         }
         
-        .thinking-step-entry:hover .tool-params-tooltip {
-            display: block !important;
-        }
+        /* 🗑️ 删除过时的CSS hover规则，使用JavaScript控制tooltip */
 
         /* 响应式设计 */
         @media (max-width: 768px) {
@@ -3301,7 +3288,7 @@
             border-radius: 16px;
             padding: 20px;
             display: none;
-            z-index: 99999;
+            z-index: 999999; /* 🎯 提高z-index，确保在所有元素之上 */
             max-height: 450px;
             overflow-y: auto;
             box-shadow: 
@@ -3316,13 +3303,14 @@
             /* 确保鼠标可以移到tooltip上而不丢失hover */
             pointer-events: auto;
             /* 防止溢出屏幕边界 */
-            max-width: calc(100vw - 40px);
+            max-width: calc(100vw - 50px); /* 🎯 增加边距 */
         }
         
         /* tooltip显示状态 */
         .tool-params-tooltip.show {
-            opacity: 1;
-            transform: translateY(0) scale(1);
+            opacity: 1 !important;
+            transform: translateY(0) scale(1) !important;
+            display: block !important;
         }
         
         /* 提升触发区域的稳定性 */
@@ -3784,10 +3772,16 @@
                 tooltip.remove();
             });
             
-            // 清理has-tooltip-container标记
+            // 🎯 清理has-tooltip-container标记
             const containers = document.querySelectorAll('.message.agent.has-tooltip-container');
             containers.forEach(container => {
                 container.classList.remove('has-tooltip-container');
+            });
+            
+            // 🎯 清理thinking-detail-text容器的has-tooltip-content标记
+            const detailContainers = document.querySelectorAll('.thinking-detail-text.has-tooltip-content');
+            detailContainers.forEach(container => {
+                container.classList.remove('has-tooltip-content');
             });
         }
         
@@ -3840,83 +3834,117 @@
                 
                 // 如果有悬停数据，添加悬停显示逻辑
                 if (hoverData) {
-                    const tooltipDiv = document.createElement('div');
-                    tooltipDiv.className = 'tool-params-tooltip';
-                    
-                    // 格式化参数显示
-                    let paramsHtml = '<div>';
-                    paramsHtml += '<div style="margin-bottom: 12px; color: #a855f7; font-weight: 600; font-size: 14px; border-bottom: 1px solid rgba(124, 58, 237, 0.3); padding-bottom: 8px;">🔧 工具参数</div>';
-                    
-                    if (typeof hoverData === 'object') {
-                        for (const [key, value] of Object.entries(hoverData)) {
-                            const displayValue = typeof value === 'string' && value.length > 300 
-                                ? value.substring(0, 300) + '...' 
-                                : JSON.stringify(value, null, 2);
-                            paramsHtml += `
-                                <div style="margin-bottom: 10px;">
-                                    <div style="color: #60a5fa; font-weight: 500; margin-bottom: 4px;">${key}:</div>
-                                    <pre style="margin: 0; padding: 8px; background: rgba(0,0,0,0.4); border-radius: 6px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; font-size: 12px; border-left: 3px solid #a855f7;">${displayValue}</pre>
-                                </div>
-                            `;
+                    // 🎯 等待DOM更新后再处理事件绑定
+                    setTimeout(() => {
+                        const tooltipDiv = document.createElement('div');
+                        tooltipDiv.className = 'tool-params-tooltip';
+                        
+                        
+                        // 格式化参数显示
+                        let paramsHtml = '<div>';
+                        paramsHtml += '<div style="margin-bottom: 12px; color: #a855f7; font-weight: 600; font-size: 14px; border-bottom: 1px solid rgba(124, 58, 237, 0.3); padding-bottom: 8px;">🔧 工具参数</div>';
+                        
+                        if (typeof hoverData === 'object') {
+                            for (const [key, value] of Object.entries(hoverData)) {
+                                const displayValue = typeof value === 'string' && value.length > 300 
+                                    ? value.substring(0, 300) + '...' 
+                                    : JSON.stringify(value, null, 2);
+                                paramsHtml += `
+                                    <div style="margin-bottom: 10px;">
+                                        <div style="color: #60a5fa; font-weight: 500; margin-bottom: 4px;">${key}:</div>
+                                        <pre style="margin: 0; padding: 8px; background: rgba(0,0,0,0.4); border-radius: 6px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; font-size: 12px; border-left: 3px solid #a855f7;">${displayValue}</pre>
+                                    </div>
+                                `;
+                            }
+                        } else {
+                            paramsHtml += `<pre style="white-space: pre-wrap; word-break: break-all; padding: 8px; background: rgba(0,0,0,0.4); border-radius: 6px; border-left: 3px solid #a855f7;">${hoverData}</pre>`;
                         }
-                    } else {
-                        paramsHtml += `<pre style="white-space: pre-wrap; word-break: break-all; padding: 8px; background: rgba(0,0,0,0.4); border-radius: 6px; border-left: 3px solid #a855f7;">${hoverData}</pre>`;
-                    }
-                    paramsHtml += '</div>';
-                    
-                    tooltipDiv.innerHTML = paramsHtml;
-                    // 添加到body，避免容器限制
-                    document.body.appendChild(tooltipDiv);
-                    
-                    // 直接在这里设置事件监听器，避免this上下文问题
-                    let showTimeout;
-                    let hideTimeout;
-                    
-                    console.log('🔗 直接绑定tooltip事件到stepEntry:', stepEntry);
-                    
-                    // 获取[参数]标记元素
-                    const paramIndicator = stepEntry.querySelector('.param-indicator');
-                    const targetElement = paramIndicator || stepEntry; // 优先绑定到[参数]标记
-                    
-                    console.log('🎯 事件绑定目标元素:', targetElement);
+                        paramsHtml += '</div>';
+                        
+                        tooltipDiv.innerHTML = paramsHtml;
+                        // 添加到body，避免容器限制
+                        document.body.appendChild(tooltipDiv);
+                        
+                        
+                        // 直接在这里设置事件监听器，避免this上下文问题
+                        let showTimeout;
+                        let hideTimeout;
+                        
+                        // 🎯 现在DOM应该已经更新，重新查找[参数]标记元素
+                        const paramIndicator = stepEntry.querySelector('.param-indicator');
+                        
+                        const targetElement = paramIndicator || stepEntry; // 优先绑定到[参数]标记
                     
                     // 鼠标进入时显示tooltip
                     targetElement.addEventListener('mouseenter', (e) => {
-                        console.log('🐭 鼠标进入，准备显示tooltip');
                         clearTimeout(hideTimeout);
                         showTimeout = setTimeout(() => {
-                            console.log('⏰ 开始显示tooltip');
                             
                             // 获取元素位置
                             const rect = targetElement.getBoundingClientRect();
-                            console.log('📏 目标元素位置:', rect);
                             
                             // 先显示tooltip以获取尺寸
                             tooltipDiv.style.display = 'block';
-                            tooltipDiv.style.opacity = '0';
+                            // 🎯 不设置内联opacity，让CSS类控制透明度
                             const tooltipRect = tooltipDiv.getBoundingClientRect();
                             
-                            // 计算位置（显示在上方）
-                            let top = rect.top - tooltipRect.height - 10;
-                            let left = rect.left + (rect.width / 2) - (tooltipRect.width / 2);
+                            // 🎯 智能定位算法：根据可用空间选择最佳位置
+                            const windowWidth = window.innerWidth;
+                            const windowHeight = window.innerHeight;
+                            const margin = 20; // 边距
                             
-                            // 边界检查
-                            if (top < 20) top = rect.bottom + 10;
-                            if (left < 20) left = 20;
-                            if (left + tooltipRect.width > window.innerWidth - 20) {
-                                left = window.innerWidth - tooltipRect.width - 20;
+                            // 计算四个方向的可用空间
+                            const spaceAbove = rect.top;
+                            const spaceBelow = windowHeight - rect.bottom;
+                            const spaceLeft = rect.left;
+                            const spaceRight = windowWidth - rect.right;
+                            
+                            
+                            let top, left;
+                            let position = 'above'; // 默认位置
+                            
+                            // 🎯 垂直位置选择：优先上方，空间不足时选下方
+                            if (spaceAbove >= tooltipRect.height + margin) {
+                                // 上方有足够空间
+                                top = rect.top - tooltipRect.height - margin;
+                                position = 'above';
+                            } else if (spaceBelow >= tooltipRect.height + margin) {
+                                // 下方有足够空间
+                                top = rect.bottom + margin;
+                                position = 'below';
+                            } else {
+                                // 两边都不够，选择空间更大的一方
+                                if (spaceAbove > spaceBelow) {
+                                    top = margin; // 贴顶显示
+                                    position = 'above-constrained';
+                                } else {
+                                    top = windowHeight - tooltipRect.height - margin; // 贴底显示
+                                    position = 'below-constrained';
+                                }
+                            }
+                            
+                            // 🎯 水平位置选择：尝试居中对齐，超出时调整
+                            const preferredLeft = rect.left + (rect.width / 2) - (tooltipRect.width / 2);
+                            
+                            if (preferredLeft >= margin && preferredLeft + tooltipRect.width <= windowWidth - margin) {
+                                // 居中对齐且不超出边界
+                                left = preferredLeft;
+                            } else if (preferredLeft < margin) {
+                                // 左边界超出，贴左显示
+                                left = margin;
+                            } else {
+                                // 右边界超出，贴右显示
+                                left = windowWidth - tooltipRect.width - margin;
                             }
                             
                             // 设置位置
                             tooltipDiv.style.top = top + 'px';
                             tooltipDiv.style.left = left + 'px';
                             
-                            console.log('📍 tooltip位置:', { top, left });
                             
                             // 显示动画
                             setTimeout(() => {
                                 tooltipDiv.classList.add('show');
-                                console.log('✨ tooltip显示动画已触发');
                             }, 10);
                             
                         }, 200);
@@ -3924,37 +3952,43 @@
                     
                     // 鼠标离开时隐藏tooltip
                     targetElement.addEventListener('mouseleave', (e) => {
-                        console.log('🐭 鼠标离开，准备隐藏tooltip');
                         clearTimeout(showTimeout);
                         hideTimeout = setTimeout(() => {
                             tooltipDiv.classList.remove('show');
                             setTimeout(() => {
                                 tooltipDiv.style.display = 'none';
-                                console.log('💨 tooltip已隐藏');
                             }, 250);
                         }, 300);
                     });
                     
                     // 鼠标进入tooltip时保持显示
                     tooltipDiv.addEventListener('mouseenter', () => {
-                        console.log('🐭 鼠标进入tooltip，保持显示');
                         clearTimeout(hideTimeout);
                     });
                     
-                    // 鼠标离开tooltip时隐藏
-                    tooltipDiv.addEventListener('mouseleave', () => {
-                        console.log('🐭 鼠标离开tooltip，立即隐藏');
-                        tooltipDiv.classList.remove('show');
-                        setTimeout(() => tooltipDiv.style.display = 'none', 250);
-                    });
-                    
-                    // 标记此容器包含tooltip，触发overflow例外
-                    const agentMessage = stepEntry.closest('.message.agent');
-                    if (agentMessage) {
-                        agentMessage.classList.add('has-tooltip-container');
-                    }
-                    
-                    stepEntry.classList.add('has-tooltip');
+                        // 鼠标离开tooltip时隐藏
+                        tooltipDiv.addEventListener('mouseleave', () => {
+                            tooltipDiv.classList.remove('show');
+                            setTimeout(() => tooltipDiv.style.display = 'none', 250);
+                        });
+                        
+                        // 🎯 标记所有相关容器包含tooltip，触发overflow例外
+                        const agentMessage = stepEntry.closest('.message.agent');
+                        if (agentMessage) {
+                            agentMessage.classList.add('has-tooltip-container');
+                        }
+                        
+                        // 🎯 标记thinking-detail-text容器允许溢出
+                        const detailContainer = stepEntry.closest('.thinking-detail-text');
+                        if (detailContainer) {
+                            detailContainer.classList.add('has-tooltip-content');
+                        }
+                        
+                        stepEntry.classList.add('has-tooltip');
+                        
+                        
+                        
+                    }, 0); // 🎯 setTimeout结束
                 }
                 
                 // 添加到详细信息区域
@@ -3969,114 +4003,6 @@
                 // 滚动到最新内容
                 detailText.scrollTop = detailText.scrollHeight;
             }
-        }
-        
-        /**
-         * 设置tooltip事件处理器
-         */
-        setupTooltipEvents(stepEntry, tooltipDiv) {
-            let showTimeout;
-            let hideTimeout;
-            
-            console.log('🔗 绑定tooltip事件监听器:', stepEntry, tooltipDiv);
-            
-            // 鼠标进入stepEntry时显示tooltip
-            stepEntry.addEventListener('mouseenter', (e) => {
-                console.log('🐭 鼠标进入stepEntry，准备显示tooltip');
-                clearTimeout(hideTimeout);
-                showTimeout = setTimeout(() => {
-                    console.log('⏰ 延迟时间到，显示tooltip');
-                    this.showTooltip(stepEntry, tooltipDiv);
-                }, 200); // 200ms延迟显示
-            });
-            
-            // 鼠标离开stepEntry时隐藏tooltip（但有延迟）
-            stepEntry.addEventListener('mouseleave', (e) => {
-                console.log('🐭 鼠标离开stepEntry，准备隐藏tooltip');
-                clearTimeout(showTimeout);
-                hideTimeout = setTimeout(() => {
-                    console.log('⏰ 延迟时间到，隐藏tooltip');
-                    this.hideTooltip(tooltipDiv);
-                }, 300);
-            });
-            
-            // 鼠标进入tooltip时保持显示
-            tooltipDiv.addEventListener('mouseenter', () => {
-                console.log('🐭 鼠标进入tooltip，保持显示');
-                clearTimeout(hideTimeout);
-            });
-            
-            // 鼠标离开tooltip时隐藏
-            tooltipDiv.addEventListener('mouseleave', () => {
-                console.log('🐭 鼠标离开tooltip，立即隐藏');
-                this.hideTooltip(tooltipDiv);
-            });
-        }
-        
-        /**
-         * 显示tooltip并动态定位
-         */
-        showTooltip(stepEntry, tooltipDiv) {
-            console.log('📍 开始显示tooltip:', tooltipDiv);
-            
-            // 获取stepEntry的位置
-            const rect = stepEntry.getBoundingClientRect();
-            console.log('📏 stepEntry位置:', rect);
-            
-            // 先设置为可见但透明，以便获取真实尺寸
-            tooltipDiv.style.display = 'block';
-            tooltipDiv.style.opacity = '0';
-            tooltipDiv.style.transform = 'translateY(10px) scale(0.95)';
-            
-            // 获取tooltip的实际尺寸
-            const tooltipRect = tooltipDiv.getBoundingClientRect();
-            console.log('📏 tooltip尺寸:', tooltipRect);
-            
-            // 计算最佳显示位置
-            let top = rect.top - tooltipRect.height - 15; // 默认显示在上方
-            let left = rect.left + (rect.width / 2) - (tooltipRect.width / 2); // 居中对齐
-            
-            // 检查上方空间是否足够
-            if (top < 20) {
-                // 上方空间不够，显示在下方
-                top = rect.bottom + 15;
-                console.log('⬇️ 上方空间不足，显示在下方');
-            } else {
-                console.log('⬆️ 显示在上方');
-            }
-            
-            // 检查左右边界
-            if (left < 20) {
-                left = 20;
-                console.log('⬅️ 调整到左边界');
-            } else if (left + tooltipRect.width > window.innerWidth - 20) {
-                left = window.innerWidth - tooltipRect.width - 20;
-                console.log('➡️ 调整到右边界');
-            }
-            
-            console.log('📍 最终位置:', { top, left });
-            
-            // 设置最终位置
-            tooltipDiv.style.top = top + 'px';
-            tooltipDiv.style.left = left + 'px';
-            
-            // 显示动画
-            setTimeout(() => {
-                console.log('✨ 触发显示动画');
-                tooltipDiv.classList.add('show');
-            }, 10);
-        }
-        
-        /**
-         * 隐藏tooltip
-         */
-        hideTooltip(tooltipDiv) {
-            console.log('🙈 隐藏tooltip:', tooltipDiv);
-            tooltipDiv.classList.remove('show');
-            setTimeout(() => {
-                tooltipDiv.style.display = 'none';
-                console.log('💨 tooltip已完全隐藏');
-            }, 250); // 等待动画完成
         }
         
         /**

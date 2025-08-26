@@ -391,7 +391,7 @@ def build_initial_enhancement_prompt(table_name: str, source_code: str, adb_code
     return f"""你是一个Databricks代码增强专家，负责为数据模型添加新字段。
 
 **任务目标**: 为表 {table_name} 创建增强版本的{code_type_desc}代码，
-注意根据用户提出的需求修改，
+注意根据用户提出的需求修改，添加字段的顺序需要符合用户要求，
 尽可能在修改的地方加上注释，标注为AI修改以及修改时间和大致修改内容，
 注意代码如果是python代码，那么可能引用了其他增量处理框架，你需要根据表中目前的字段加工的位置，结合用户需求，推断新增字段在代码中添加字段的位置
 

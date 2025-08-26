@@ -19,6 +19,7 @@ class EDWState(TypedDict):
     # 模型开发相关信息
     table_name: Optional[str]  # 表名
     branch_name: Optional[str]  # 代码分支名称
+    jira_number: Optional[str] # JIRA工单号
     code_path: Optional[str]  # 代码路径
     adb_code_path: Optional[str]  # ADB中的代码路径（从code_path转换而来）
     source_code: Optional[str]  # 源代码
